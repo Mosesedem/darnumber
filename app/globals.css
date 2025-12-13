@@ -47,25 +47,25 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
+  --radius: 1rem;
+  --background: oklch(0.96 0.005 85);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.55 0.22 251);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.005 85);
+  --secondary-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.96 0.005 85);
+  --muted-foreground: oklch(0.5 0.01 265);
+  --accent: oklch(0.96 0.005 85);
+  --accent-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.92 0.005 265);
+  --input: oklch(0.92 0.005 265);
+  --ring: oklch(0.55 0.22 251);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -88,8 +88,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.55 0.22 251);
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -99,7 +99,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.55 0.22 251);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -121,5 +121,157 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+  }
+}
+
+@layer components {
+  /* Primary Buttons */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground rounded-xl px-6 py-3.5 font-semibold text-base shadow-sm hover:opacity-90 transition-opacity;
+  }
+
+  /* Secondary Buttons - Light background */
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground rounded-xl px-6 py-3.5 font-medium text-base hover:bg-accent transition-colors;
+  }
+
+  /* Card Components */
+  .card-base {
+    @apply bg-card rounded-3xl shadow-lg p-6;
+  }
+
+  /* Feature Cards (Solo Translation, Group/Event) */
+  .feature-card {
+    @apply bg-secondary rounded-2xl p-6 flex flex-col items-center justify-center gap-3 hover:bg-accent transition-colors cursor-pointer;
+  }
+
+  .feature-card-icon {
+    @apply w-16 h-16 rounded-2xl flex items-center justify-center;
+  }
+
+  .feature-card-title {
+    @apply font-semibold text-sm text-center text-foreground;
+  }
+
+  /* List Items (Contact Selection) */
+  .list-item {
+    @apply flex items-center gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer;
+  }
+
+  .list-item-avatar {
+    @apply w-12 h-12 rounded-full object-cover;
+  }
+
+  .list-item-content {
+    @apply flex-1;
+  }
+
+  .list-item-title {
+    @apply font-semibold text-sm text-foreground;
+  }
+
+  .list-item-subtitle {
+    @apply text-xs text-muted-foreground mt-0.5;
+  }
+
+  /* Duration Selection Cards */
+  .duration-card {
+    @apply bg-secondary rounded-2xl p-4 flex items-center justify-between hover:bg-accent transition-all cursor-pointer border-2 border-transparent;
+  }
+
+  .duration-card-selected {
+    @apply bg-primary text-primary-foreground border-primary;
+  }
+
+  .duration-card-title {
+    @apply font-semibold text-base;
+  }
+
+  .duration-card-subtitle {
+    @apply text-xs opacity-80 mt-1;
+  }
+
+  /* Input Fields */
+  .input-field {
+    @apply bg-background border border-input rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring;
+  }
+
+  /* Headers and Text */
+  .heading-1 {
+    @apply text-3xl font-bold text-foreground;
+  }
+
+  .heading-2 {
+    @apply text-xl font-bold text-foreground;
+  }
+
+  .heading-3 {
+    @apply text-lg font-semibold text-foreground;
+  }
+
+  .body-text {
+    @apply text-sm text-foreground;
+  }
+
+  .caption-text {
+    @apply text-xs text-muted-foreground;
+  }
+
+  /* Promo Banner */
+  .promo-banner {
+    @apply bg-secondary rounded-2xl p-5 flex items-center gap-4;
+  }
+
+  .promo-icon {
+    @apply text-3xl;
+  }
+
+  .promo-content {
+    @apply flex-1;
+  }
+
+  .promo-title {
+    @apply font-bold text-base text-foreground;
+  }
+
+  /* Navigation Bar */
+  .nav-bar {
+    @apply flex items-center justify-around py-4 bg-card border-t border-border;
+  }
+
+  .nav-item {
+    @apply flex flex-col items-center gap-1 cursor-pointer;
+  }
+
+  .nav-item-active {
+    @apply text-primary;
+  }
+
+  .nav-icon {
+    @apply text-2xl;
+  }
+
+  .nav-label {
+    @apply text-xs font-medium;
+  }
+
+  /* Checkbox/Radio Indicators */
+  .checkbox-indicator {
+    @apply w-5 h-5 rounded-full border-2 border-primary flex items-center justify-center;
+  }
+
+  .checkbox-indicator-checked {
+    @apply bg-primary;
+  }
+
+  /* Balance Display */
+  .balance-label {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .balance-amount {
+    @apply font-bold text-base text-foreground;
   }
 }
