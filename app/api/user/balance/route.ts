@@ -15,6 +15,12 @@ export async function GET(req: NextRequest) {
 
     if (!user) return error("User not found", 404);
 
+    console.log("[Route][User][Balance] Fetched successfully", {
+      userId: session.user.id,
+      balance: user.balance,
+      currency: user.currency,
+    });
+
     return json({
       ok: true,
       data: {

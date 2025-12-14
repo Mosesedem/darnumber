@@ -214,7 +214,11 @@ class ApiClient {
     const response = await this.client.get("/users/transactions", {
       params: { page, limit },
     });
-    return response.data;
+    // Backend returns {ok: true, data: {transactions: [], pagination: {}}}
+    return {
+      data: response.data.data?.transactions || [],
+      pagination: response.data.data?.pagination || {},
+    };
   }
 
   async updateBankDetails(data: {

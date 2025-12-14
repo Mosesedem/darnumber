@@ -86,7 +86,7 @@ export default function DashboardPage() {
               Total Orders
             </p>
             <p className="text-2xl md:text-3xl font-bold">
-              {stats?.totalOrders || 0}
+              {stats?.orders?.total || 0}
             </p>
           </Card>
           <Card className="p-4 md:p-6">
@@ -94,14 +94,14 @@ export default function DashboardPage() {
               Completed
             </p>
             <p className="text-2xl md:text-3xl font-bold text-green-600">
-              {stats?.ordersByStatus?.COMPLETED || 0}
+              {stats?.orders?.byStatus?.COMPLETED || 0}
             </p>
           </Card>
           <Card className="p-4 md:p-6">
             <p className="text-xs md:text-sm text-muted-foreground">Pending</p>
             <p className="text-2xl md:text-3xl font-bold text-yellow-600">
-              {(stats?.ordersByStatus?.PENDING || 0) +
-                (stats?.ordersByStatus?.WAITING_SMS || 0)}
+              {(stats?.orders?.byStatus?.PENDING || 0) +
+                (stats?.orders?.byStatus?.WAITING_SMS || 0)}
             </p>
           </Card>
           <Card className="p-4 md:p-6">
@@ -109,7 +109,7 @@ export default function DashboardPage() {
               Total Spent
             </p>
             <p className="text-2xl md:text-3xl font-bold">
-              ₦{stats?.totalSpent.toLocaleString() || "0"}
+              ₦{stats?.transactions?.totalSpent?.toLocaleString() || "0"}
             </p>
           </Card>
         </div>
