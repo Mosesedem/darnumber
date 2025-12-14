@@ -59,87 +59,103 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">My Orders</h1>
-        <Button onClick={() => router.push("/dashboard/orders/new")}>
-          Create New Order
-        </Button>
-      </div>
-
-      {orders.length === 0 ? (
-        <Card className="p-12 text-center">
-          <p className="text-muted-foreground mb-4">No orders yet</p>
-          <Button onClick={() => router.push("/dashboard/orders/new")}>
-            Create Your First Order
+    <div className="w-full">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold">My Orders</h1>
+          <Button
+            onClick={() => router.push("/orders/new")}
+            className="w-full sm:w-auto"
+          >
+            Buy Number
           </Button>
-        </Card>
-      ) : (
-        <>
-          <div className="grid gap-4">
-            {orders.map((order) => (
-              <Card
-                key={order.id}
-                className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => router.push(`/dashboard/orders/${order.id}`)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold">
-                        {order.serviceCode.toUpperCase()}
-                      </h3>
-                      <Badge className={getStatusColor(order.status)}>
-                        {order.status}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Order #{order.orderNumber}
-                    </p>
-                    {order.phoneNumber && (
-                      <p className="text-sm font-mono">{order.phoneNumber}</p>
-                    )}
-                    {order.smsCode && (
-                      <p className="text-lg font-bold text-green-600">
-                        Code: {order.smsCode}
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-right space-y-2">
-                    <p className="text-2xl font-bold">${order.finalPrice}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(order.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+        </div>
 
-          {/* Pagination */}
-          {pagination.pages > 1 && (
-            <div className="flex justify-center gap-2">
-              <Button
-                variant="outline"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <span className="flex items-center px-4">
-                Page {page} of {pagination.pages}
-              </span>
-              <Button
-                variant="outline"
-                disabled={page === pagination.pages}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
+        {orders.length === 0 ? (
+          <Card className="p-8 md:p-12 text-center">
+            <p className="text-muted-foreground mb-4 text-sm md:text-base">
+              No orders yet
+            </p>
+            <Button
+              onClick={() => router.push("/orders/new")}
+              className="w-full sm:w-auto"
+            >
+              Buy Your First Number
+            </Button>
+          </Card>
+        ) : (
+          <>
+            <div className="grid gap-3 md:gap-4">
+              {orders.map((order) => (
+                <Card
+                  key={order.id}
+                  className="p-4 md:p-6 hover:shadow-lg transition-shadow cursor-pointer"
+                  onClick={() => router.push(`/orders/${order.id}`)}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base md:text-lg font-semibold truncate">
+                          {order.serviceCode.toUpperCase()}
+                        </h3>
+                        <Badge className={getStatusColor(order.status)}>
+                          {order.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs md:text-sm text-muted-foreground truncate">
+                        Order #{order.orderNumber}
+                      </p>
+                      {order.phoneNumber && (
+                        <p className="text-xs md:text-sm font-mono break-all">
+                          {order.phoneNumber}
+                        </p>
+                      )}
+                      {order.smsCode && (
+                        <p className="text-base md:text-lg font-bold text-green-600">
+                          Code: {order.smsCode}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start sm:text-right space-y-0 sm:space-y-2">
+                      <p className="text-xl md:text-2xl font-bold">
+                        ${order.finalPrice}
+                      </p>
+                      <p className="text-xs md:text-sm text-muted-foreground">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
             </div>
-          )}
-        </>
-      )}
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+              <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-2">
+                <Button
+                  variant="outline"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                  className="w-full sm:w-auto"
+                >
+                  Previous
+                </Button>
+                <span className="flex items-center px-4 text-sm md:text-base">
+                  Page {page} of {pagination.pages}
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={page === pagination.pages}
+                  onClick={() => setPage(page + 1)}
+                  className="w-full sm:w-auto"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

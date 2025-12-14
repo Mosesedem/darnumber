@@ -76,7 +76,7 @@ TEXTVERIFIED_API_KEY=your-textverified-api-key
 # Stripe
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_CURRENCY=usd
+STRIPE_CURRENCY=NGN
 
 # AWS (for SES email and CloudWatch)
 AWS_REGION=us-east-1

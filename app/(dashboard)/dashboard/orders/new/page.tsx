@@ -71,7 +71,7 @@ export default function NewOrderPage() {
       });
 
       if (response.success) {
-        router.push(`/dashboard/orders/${response.data.id}`);
+        router.push(`/orders/${response.data.id}`);
       } else {
         setError(response.error || "Failed to create order");
       }
@@ -101,12 +101,12 @@ export default function NewOrderPage() {
       </Button>
 
       <Card className="p-8">
-        <h1 className="text-3xl font-bold mb-6">Create New Order</h1>
+        <h1 className="text-3xl font-bold mb-6">Buy Number</h1>
 
         {/* Balance Display */}
         <div className="mb-6 p-4 bg-blue-50 rounded-lg">
           <p className="text-sm text-muted-foreground">Available Balance</p>
-          <p className="text-2xl font-bold">${balance.toFixed(2)}</p>
+          <p className="text-2xl font-bold">₦{balance.toLocaleString()}</p>
         </div>
 
         {error && (
@@ -129,7 +129,7 @@ export default function NewOrderPage() {
               <SelectContent>
                 {services.map((service) => (
                   <SelectItem key={service.code} value={service.code}>
-                    {service.name} - ${service.price}
+                    {service.name} - ₦{service.price.toLocaleString()}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -173,14 +173,14 @@ export default function NewOrderPage() {
                 </div>
                 <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t">
                   <span>Total:</span>
-                  <span>${selectedServiceData.price}</span>
+                  <span>₦{selectedServiceData.price.toLocaleString()}</span>
                 </div>
               </div>
             </Card>
           )}
 
           <Button type="submit" className="w-full" disabled={creating}>
-            {creating ? "Creating Order..." : "Create Order"}
+            {creating ? "Processing..." : "Buy Number"}
           </Button>
         </form>
       </Card>

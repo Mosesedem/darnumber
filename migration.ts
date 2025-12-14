@@ -65,7 +65,7 @@ async function migrateUsers() {
             userName: legacyUser.user_name || `User${legacyUser.id}`,
             password: hashedPassword,
             balance: legacyUser.balance || 0,
-            currency: legacyUser.currency || "USD",
+            currency: legacyUser.currency || "NGN",
             bankAccount: legacyUser.bank_account || null,
             accountNumber: legacyUser.account_number || null,
             bankName: legacyUser.bank_name || null,
@@ -196,7 +196,7 @@ async function seedInitialData() {
       status: "ACTIVE",
       emailVerified: true,
       balance: 0,
-      currency: "USD",
+      currency: "NGN",
       referralCode: "ADMIN001",
     },
   });
@@ -208,12 +208,12 @@ async function seedInitialData() {
     data: [
       {
         key: "referral_reward_amount",
-        value: { amount: 5, currency: "USD" },
+        value: { amount: 5, currency: "NGN" },
         description: "Reward amount for successful referrals",
       },
       {
         key: "min_deposit_amount",
-        value: { amount: 10, currency: "USD" },
+        value: { amount: 10, currency: "NGN" },
         description: "Minimum deposit amount",
       },
       {

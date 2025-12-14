@@ -27,7 +27,7 @@ model User {
 
   // Financial
   balance  Decimal @default(0) @db.Decimal(15, 2)
-  currency String  @default("USD")
+  currency String  @default("NGN")
 
   // Banking (encrypted at application level)
   bankAccount   String? @map("bank_account")
@@ -272,7 +272,7 @@ model Order {
   baseCost   Decimal @map("base_cost") @db.Decimal(10, 4)
   profit     Decimal @db.Decimal(10, 4)
   finalPrice Decimal @map("final_price") @db.Decimal(10, 4)
-  currency   String  @default("USD")
+  currency   String  @default("NGN")
 
   // Status & Lifecycle
   status      OrderStatus @default(PENDING)
@@ -319,7 +319,7 @@ model Transaction {
   transactionNumber String          @unique @map("transaction_number")
   type              TransactionType
   amount            Decimal         @db.Decimal(15, 2)
-  currency          String          @default("USD")
+  currency          String          @default("NGN")
 
   // Balance tracking
   balanceBefore Decimal @map("balance_before") @db.Decimal(15, 2)

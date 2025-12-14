@@ -5,20 +5,24 @@ import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
 
 export default function WalletPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
+  const [dva, setDva] = useState<{
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+  } | null>(null);
+  const [dvaError, setDvaError] = useState("");
+  const [dvaCooldownUntil, setDvaCooldownUntil] = useState<number>(0);
+  const cooldownMs = 15_000; // 15 seconds
 
   useEffect(() => {
     fetchWalletData();
@@ -32,6 +36,29 @@ export default function WalletPage() {
       ]);
       setBalance(balanceRes.data.balance);
       setTransactions(transactionsRes.data);
+      // Try fetch or request dedicated account silently if available
+      try {
+        // Use lightweight GET to fetch existing DVA without creating
+        const res = await fetch("/api/payments/paystack/dedicated-account", {
+          method: "GET",
+        });
+        const json = await res.json();
+        const data = json?.data;
+        if (data?.bankName && data?.accountNumber && data?.accountName) {
+          setDva(data);
+        }
+      } catch (e: any) {
+        const msg =
+          e?.response?.data?.error?.message ||
+          e?.response?.data?.error ||
+          e?.message ||
+          "";
+        if (msg.includes("Paystack secret not configured")) {
+          setDvaError(
+            "To enable a dedicated account, set PAYSTACK_SECRET_KEY in .env and restart the server."
+          );
+        }
+      }
     } catch (error) {
       console.error("Failed to fetch wallet data:", error);
     } finally {
@@ -44,37 +71,6 @@ export default function WalletPage() {
     router.push("/wallet/checkout");
   };
 
-  const handleWithdraw = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount < 10) {
-      setError("Minimum withdrawal amount is $10");
-      return;
-    }
-
-    if (amount > balance) {
-      setError("Insufficient balance");
-      return;
-    }
-
-    setProcessing(true);
-
-    try {
-      await api.requestWithdrawal(amount, "bank_transfer");
-      setWithdrawAmount("");
-      fetchWalletData();
-      alert(
-        "Withdrawal request submitted. Processing may take 1-3 business days."
-      );
-    } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to process withdrawal");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -84,123 +80,220 @@ export default function WalletPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl space-y-6">
-      <h1 className="text-3xl font-bold">Wallet</h1>
+    <div className="w-full">
+      <div className="container mx-auto p-4 md:p-6 max-w-4xl space-y-4 md:space-y-6">
+        <h1 className="text-2xl md:text-3xl font-bold">Wallet</h1>
 
-      {/* Balance Card */}
-      <Card className="p-6 bg-gradient-to-r from-green-500 to-green-600 text-white">
-        <p className="text-sm opacity-90">Available Balance</p>
-        <p className="text-5xl font-bold mt-2">₦{balance.toLocaleString()}</p>
-      </Card>
+        {/* Balance Card */}
+        <Card className="p-4 md:p-6 bg-gradient-to-r from-green-500 to-green-600 text-white">
+          <p className="text-xs md:text-sm opacity-90">Available Balance</p>
+          <p className="text-3xl md:text-5xl font-bold mt-2">
+            ₦{balance.toLocaleString()}
+          </p>
+        </Card>
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+        {error && (
+          <Alert variant="destructive" className="text-sm md:text-base">
+            {error}
+          </Alert>
+        )}
 
-      {/* Deposit/Withdraw Tabs */}
-      <Tabs defaultValue="deposit">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="deposit">Fund Wallet</TabsTrigger>
-          <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="deposit">
-          <Card className="p-6">
-            <h2 className="text-xl font-bold mb-4">Fund Your Wallet</h2>
-            <p className="text-muted-foreground mb-6">
-              Add money to your wallet using Paystack, Flutterwave, or Etegram.
-              Fast, secure, and convenient Nigerian payment methods.
-            </p>
-            <div className="space-y-4">
-              <div className="bg-muted rounded-lg p-4">
-                <h3 className="font-semibold mb-2">
-                  ✨ Available Payment Methods
-                </h3>
-                <ul className="text-sm space-y-1 text-muted-foreground">
-                  <li>• Card Payments (Mastercard, Visa, Verve)</li>
-                  <li>• Bank Transfer</li>
-                  <li>• USSD</li>
-                  <li>• Mobile Money</li>
-                </ul>
-              </div>
-              <Button onClick={handleDeposit} className="w-full" size="lg">
-                Continue to Checkout
-              </Button>
+        {/* Fund Wallet */}
+        <Card className="p-4 md:p-6">
+          <h2 className="text-lg md:text-xl font-bold mb-4">
+            Fund Your Wallet
+          </h2>
+          <p className="text-sm md:text-base text-muted-foreground mb-6">
+            Add money to your wallet using Paystack, Flutterwave, or Etegram.
+            Fast, secure, and convenient Nigerian payment methods.
+          </p>
+          <div className="space-y-4">
+            <div className="bg-muted rounded-lg p-3 md:p-4">
+              <h3 className="text-sm md:text-base font-semibold mb-2">
+                ✨ Available Payment Methods
+              </h3>
+              <ul className="text-xs md:text-sm space-y-1 text-muted-foreground">
+                <li>• Card Payments (Mastercard, Visa, Verve)</li>
+                <li>• Bank Transfer</li>
+                <li>• USSD</li>
+                <li>• Mobile Money</li>
+              </ul>
             </div>
-          </Card>
-        </TabsContent>
+            <Button onClick={handleDeposit} className="w-full" size="lg">
+              Continue to Checkout
+            </Button>
+          </div>
+        </Card>
 
-        <TabsContent value="withdraw">
-          <Card className="p-6">
-            <h2 className="text-xl font-bold mb-4">Withdraw Funds</h2>
-            <form onSubmit={handleWithdraw} className="space-y-4">
-              <div>
-                <Label htmlFor="withdrawAmount">Amount (NGN)</Label>
-                <Input
-                  id="withdrawAmount"
-                  type="number"
-                  step="1"
-                  min="1000"
-                  max={balance}
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  placeholder="Minimum ₦1,000"
-                  required
-                  disabled={processing}
-                />
-                <p className="text-sm text-muted-foreground mt-1">
-                  Minimum withdrawal: ₦1,000. Processing takes 1-3 business
-                  days.
-                </p>
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={processing || balance < 1000}
-              >
-                {processing ? "Processing..." : "Request Withdrawal"}
-              </Button>
-            </form>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Transaction History */}
-      <Card className="p-6">
-        <h2 className="text-xl font-bold mb-4">Recent Transactions</h2>
-        <div className="space-y-2">
-          {transactions.length === 0 ? (
-            <p className="text-center text-muted-foreground py-4">
-              No transactions yet
-            </p>
-          ) : (
-            transactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between p-4 border rounded-lg"
-              >
-                <div>
-                  <p className="font-medium">{tx.type}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(tx.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p
-                    className={`font-bold ${
-                      tx.type === "DEPOSIT" || tx.type === "REFUND"
-                        ? "text-green-600"
-                        : "text-red-600"
-                    }`}
-                  >
-                    {tx.type === "DEPOSIT" || tx.type === "REFUND" ? "+" : "-"}₦
-                    {Number(tx.amount).toLocaleString()}
-                  </p>
-                  <p className="text-sm text-muted-foreground">{tx.status}</p>
-                </div>
-              </div>
-            ))
+        {/* Dedicated Virtual Account */}
+        <Card className="p-4 md:p-6 space-y-3">
+          <h2 className="text-lg md:text-xl font-bold">
+            Your Dedicated Account
+          </h2>
+          {dvaError && (
+            <Alert variant="destructive" className="text-sm md:text-base">
+              {dvaError}
+            </Alert>
           )}
-        </div>
-      </Card>
+          {!dva && !dvaError && (
+            <p className="text-sm md:text-base text-muted-foreground">
+              No dedicated account yet. Generate one from the checkout page or
+              here.
+            </p>
+          )}
+          {dva && (
+            <div className="border rounded-lg p-3 md:p-4 text-xs md:text-sm space-y-2">
+              <div className="font-medium">{dva.bankName}</div>
+              <div>Account Name: {dva.accountName}</div>
+              <div className="font-mono">
+                Account Number: {dva.accountNumber}
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigator.clipboard.writeText(dva.accountNumber)
+                  }
+                >
+                  Copy Account Number
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      `${dva.accountName} - ${dva.bankName}`
+                    )
+                  }
+                >
+                  Copy Account Details
+                </Button>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                setDvaError("");
+                const now = Date.now();
+                if (now < dvaCooldownUntil) {
+                  setDvaError(
+                    `Please wait ${Math.ceil(
+                      (dvaCooldownUntil - now) / 1000
+                    )}s before requesting again.`
+                  );
+                  return;
+                }
+                setDvaCooldownUntil(now + cooldownMs);
+                try {
+                  // Generate (or reassign) via POST only when user requests
+                  const res = await fetch(
+                    "/api/payments/paystack/dedicated-account",
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ preferredBank: "wema-bank" }),
+                    }
+                  );
+                  const json = await res.json();
+                  if (!res.ok) {
+                    throw new Error(
+                      json?.error?.message ||
+                        json?.error ||
+                        "Failed to request dedicated account"
+                    );
+                  }
+                  const data = json?.data;
+                  if (
+                    !data?.bankName ||
+                    !data?.accountNumber ||
+                    !data?.accountName
+                  ) {
+                    setDvaError(
+                      "Missing account details from provider. Please try again or contact support."
+                    );
+                    return;
+                  }
+                  setDva(data);
+                } catch (e: any) {
+                  const msg =
+                    e?.response?.data?.error?.message ||
+                    e?.response?.data?.error ||
+                    e?.message ||
+                    "Failed to request dedicated account";
+                  if (msg.includes("Paystack secret not configured")) {
+                    setDvaError(
+                      "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env and restart the server."
+                    );
+                  } else {
+                    setDvaError(msg);
+                  }
+                } finally {
+                  // Clear cooldown after delay to allow another attempt
+                  setTimeout(() => setDvaCooldownUntil(0), cooldownMs);
+                }
+              }}
+              disabled={Date.now() < dvaCooldownUntil}
+            >
+              {dva ? "Regenerate Account" : "Generate Dedicated Account"}
+            </Button>
+            <Button variant="outline" onClick={handleDeposit}>
+              Fund via Checkout
+            </Button>
+          </div>
+        </Card>
+
+        {/* Transaction History */}
+        <Card className="p-4 md:p-6">
+          <h2 className="text-lg md:text-xl font-bold mb-4">
+            Recent Transactions
+          </h2>
+          <div className="space-y-2">
+            {transactions.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4 text-sm md:text-base">
+                No transactions yet
+              </p>
+            ) : (
+              transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 md:p-4 border rounded-lg gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm md:text-base truncate">
+                      {tx.type}
+                    </p>
+                    <p className="text-xs md:text-sm text-muted-foreground">
+                      {new Date(tx.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end sm:text-right gap-4">
+                    <p
+                      className={`font-bold text-sm md:text-base ${
+                        tx.type === "DEPOSIT" || tx.type === "REFUND"
+                          ? "text-green-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {tx.type === "DEPOSIT" || tx.type === "REFUND"
+                        ? "+"
+                        : "-"}
+                      ₦{Number(tx.amount).toLocaleString()}
+                    </p>
+                    <p className="text-xs md:text-sm text-muted-foreground">
+                      {tx.status}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -1,14 +1,14 @@
 "use client";
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert } from "@/components/ui/alert";
-
+import { Badge } from "@/components/ui/badge";
 type Provider = "etegram" | "paystack" | "flutterwave";
 
 export default function CheckoutPage() {
@@ -22,6 +22,7 @@ export default function CheckoutPage() {
     accountNumber: string;
     accountName: string;
   } | null>(null);
+  const [dvaError, setDvaError] = useState<string>("");
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,334 +64,167 @@ export default function CheckoutPage() {
 
   const requestDedicatedAccount = async () => {
     setError("");
+    setDvaError("");
     setLoading(true);
     try {
       const res = await api.requestPaystackDedicatedAccount();
-      setDva(res?.data);
-    } catch (e: any) {
-      setError(
-        e?.response?.data?.error?.message ||
-          e?.message ||
-          "Failed to request dedicated account"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="container mx-auto p-6 max-w-2xl">
-      <h1 className="text-2xl font-bold mb-6">Fund Wallet</h1>
-
-      {error && <Alert variant="destructive">{error}</Alert>}
-
-      <Card className="p-6 space-y-6">
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="amount">Amount (NGN)</Label>
-            <Input
-              id="amount"
-              type="number"
-              min="100"
-              step="1"
-              placeholder="Minimum ₦100"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              disabled={loading}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Payment Provider</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {(
-                [
-                  { key: "etegram", label: "Etegram (Default)" },
-                  { key: "paystack", label: "Paystack" },
-                  { key: "flutterwave", label: "Flutterwave" },
-                ] as { key: Provider; label: string }[]
-              ).map((p) => (
-                <button
-                  type="button"
-                  key={p.key}
-                  onClick={() => setProvider(p.key)}
-                  className={`border rounded-lg p-3 text-left hover:bg-muted ${
-                    provider === p.key ? "ring-2 ring-primary" : ""
-                  }`}
-                  disabled={loading}
-                >
-                  <div className="font-medium">{p.label}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {p.key === "etegram" &&
-                      "Bank transfer checkout (webhook confirmed)"}
-                    {p.key === "paystack" && "Cards, Bank Transfer, USSD"}
-                    {p.key === "flutterwave" && "Cards, Bank, Mobile Money"}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Processing..." : "Proceed to Payment"}
-          </Button>
-        </form>
-      </Card>
-
-      <Card className="p-6 mt-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold">Optional: Dedicated Bank Account</h2>
-            <p className="text-sm text-muted-foreground">
-              Request a personal virtual account (Paystack) for easy top-ups.
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={requestDedicatedAccount}
-            disabled={loading}
-          >
-            {loading ? "Requesting..." : "Request Account"}
-          </Button>
-        </div>
-        {dva && (
-          <div className="border rounded-lg p-4 text-sm">
-            <div className="font-medium">{dva.bankName}</div>
-            <div>Account Name: {dva.accountName}</div>
-            <div>Account Number: {dva.accountNumber}</div>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-("use client");
-
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import api from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-
-interface PaymentProvider {
-  name: string;
-  value: string;
-  description: string;
-  logo: string;
-}
-
-export default function CheckoutPage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [providers, setProviders] = useState<PaymentProvider[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetchProviders();
-  }, []);
-
-  const fetchProviders = async () => {
-    try {
-      const response = await api.getPaymentProviders();
-      setProviders(response.data);
-      if (response.data.length > 0) {
-        setSelectedProvider(response.data[0].value);
-      }
-    } catch (error) {
-      console.error("Failed to fetch payment providers:", error);
-      setError("Failed to load payment providers");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    const depositAmount = parseFloat(amount);
-
-    if (isNaN(depositAmount) || depositAmount < 100) {
-      setError("Minimum deposit amount is ₦100");
-      return;
-    }
-
-    if (!selectedProvider) {
-      setError("Please select a payment provider");
-      return;
-    }
-
-    setProcessing(true);
-
-    try {
-      const response = await api.initializePayment(
-        depositAmount,
-        selectedProvider
-      );
-
-      if (response.success && response.data.authorizationUrl) {
-        // Redirect to payment provider's page
-        window.location.href = response.data.authorizationUrl;
+      const data = res?.data;
+      if (!data?.bankName || !data?.accountNumber || !data?.accountName) {
+        setDvaError(
+          "Missing account details from provider. Please try again or contact support."
+        );
       } else {
-        setError("Failed to initialize payment");
+        setDva(data);
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Failed to process payment");
-      setProcessing(false);
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.error?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        "Failed to request dedicated account";
+      // Provide actionable guidance for missing env
+      if (msg.includes("Paystack secret not configured")) {
+        setDvaError(
+          "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env and restart the server."
+        );
+      } else {
+        setDvaError(msg);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
-  }
-
   return (
-    <div className="container mx-auto max-w-2xl p-6">
-      <div className="mb-6">
-        <Button variant="ghost" onClick={() => router.back()} className="mb-4">
-          ← Back
-        </Button>
-        <h1 className="text-3xl font-bold">Fund Your Wallet</h1>
-        <p className="text-muted-foreground mt-2">
-          Choose your preferred payment method and enter the amount to fund
-        </p>
-      </div>
+    <div className="w-full">
+      <div className="container mx-auto p-4 md:p-6 max-w-2xl space-y-4 md:space-y-6">
+        <h1 className="text-xl md:text-2xl font-bold">Fund Wallet</h1>
 
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert variant="destructive" className="text-sm md:text-base">
+            {error}
+          </Alert>
+        )}
 
-      <Card className="p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Amount Input */}
-          <div className="space-y-2">
-            <Label htmlFor="amount">Amount (NGN)</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                ₦
-              </span>
+        <Card className="p-4 md:p-6 space-y-4 md:space-y-6">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="amount" className="text-sm md:text-base">
+                Amount (NGN)
+              </Label>
               <Input
                 id="amount"
                 type="number"
                 min="100"
                 step="1"
+                placeholder="Minimum ₦100"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="Enter amount"
-                className="pl-8"
                 required
+                disabled={loading}
+                className="text-sm md:text-base"
               />
             </div>
-            <p className="text-sm text-muted-foreground">Minimum: ₦100</p>
-          </div>
 
-          {/* Payment Provider Selection */}
-          <div className="space-y-4">
-            <Label>Select Payment Method</Label>
-            {providers.length === 0 ? (
-              <Alert>
-                No payment providers are currently available. Please contact
-                support.
-              </Alert>
-            ) : (
-              <div className="space-y-3">
-                {providers.map((provider) => (
-                  <div
-                    key={provider.value}
-                    className={`relative flex items-start space-x-3 rounded-lg border p-4 cursor-pointer transition-all ${
-                      selectedProvider === provider.value
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
+            <div className="space-y-2">
+              <Label className="text-sm md:text-base">Payment Provider</Label>
+              <div className="grid grid-cols-1 gap-3">
+                {(
+                  [
+                    { key: "etegram", label: "Etegram (Default)" },
+                    { key: "paystack", label: "Paystack" },
+                    { key: "flutterwave", label: "Flutterwave" },
+                  ] as { key: Provider; label: string }[]
+                ).map((p) => (
+                  <button
+                    type="button"
+                    key={p.key}
+                    onClick={() => setProvider(p.key)}
+                    className={`border rounded-lg p-3 text-left hover:bg-muted transition-all ${
+                      provider === p.key
+                        ? "ring-2 ring-primary bg-primary/5"
+                        : ""
                     }`}
-                    onClick={() => setSelectedProvider(provider.value)}
+                    disabled={loading}
                   >
-                    <input
-                      type="radio"
-                      name="provider"
-                      value={provider.value}
-                      checked={selectedProvider === provider.value}
-                      onChange={(e) => setSelectedProvider(e.target.value)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold">{provider.name}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {provider.description}
-                          </p>
-                        </div>
-                        {selectedProvider === provider.value && (
-                          <Badge variant="default">Selected</Badge>
-                        )}
-                      </div>
+                    <div className="font-medium text-sm md:text-base">
+                      {p.label}
                     </div>
-                  </div>
+                    <div className="text-xs md:text-sm text-muted-foreground mt-1">
+                      {p.key === "etegram" &&
+                        "Bank transfer checkout (webhook confirmed)"}
+                      {p.key === "paystack" && "Cards, Bank Transfer, USSD"}
+                      {p.key === "flutterwave" && "Cards, Bank, Mobile Money"}
+                    </div>
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Quick Amount Buttons */}
-          <div className="space-y-2">
-            <Label>Quick Amount</Label>
-            <div className="grid grid-cols-4 gap-2">
-              {[500, 1000, 2000, 5000].map((quickAmount) => (
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Processing..." : "Proceed to Payment"}
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-4 md:p-6 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex-1">
+              <h2 className="font-semibold text-sm md:text-base">
+                Optional: Dedicated Bank Account
+              </h2>
+              <p className="text-xs md:text-sm text-muted-foreground mt-1">
+                Request a personal virtual account (Paystack) for easy top-ups.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={requestDedicatedAccount}
+              disabled={loading}
+              className="w-full sm:w-auto whitespace-nowrap"
+            >
+              {loading ? "Requesting..." : "Request Account"}
+            </Button>
+          </div>
+          {dvaError && (
+            <Alert variant="destructive" className="text-xs md:text-sm">
+              {dvaError}
+            </Alert>
+          )}
+          {dva && (
+            <div className="border rounded-lg p-3 md:p-4 text-xs md:text-sm space-y-1">
+              <div className="font-medium">{dva.bankName}</div>
+              <div>Account Name: {dva.accountName}</div>
+              <div className="font-mono">
+                Account Number: {dva.accountNumber}
+              </div>
+              <div className="flex gap-2 pt-2">
                 <Button
-                  key={quickAmount}
                   type="button"
                   variant="outline"
-                  onClick={() => setAmount(quickAmount.toString())}
-                  className="w-full"
+                  size="sm"
+                  onClick={() =>
+                    navigator.clipboard.writeText(dva.accountNumber)
+                  }
                 >
-                  ₦{quickAmount.toLocaleString()}
+                  Copy Account Number
                 </Button>
-              ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      `${dva.accountName} - ${dva.bankName}`
+                    )
+                  }
+                >
+                  Copy Account Details
+                </Button>
+              </div>
             </div>
-          </div>
-
-          {/* Submit Button */}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={processing || providers.length === 0 || !amount}
-          >
-            {processing ? (
-              <>
-                <Spinner className="mr-2 h-4 w-4" />
-                Processing...
-              </>
-            ) : (
-              `Proceed to Payment`
-            )}
-          </Button>
-        </form>
-      </Card>
-
-      {/* Security Notice */}
-      <div className="mt-6 rounded-lg bg-muted p-4">
-        <h3 className="font-semibold mb-2">🔒 Secure Payment</h3>
-        <p className="text-sm text-muted-foreground">
-          Your payment is processed securely through our trusted payment
-          partners. We do not store your card details. All transactions are
-          encrypted and secure.
-        </p>
+          )}
+        </Card>
       </div>
     </div>
   );

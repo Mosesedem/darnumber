@@ -12,7 +12,25 @@ import {
   Settings,
   Shield,
   LogOut,
+  Menu,
+  X,
 } from "lucide-react";
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarTrigger,
+  SidebarInset,
+} from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import { useState } from "react";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function DashboardLayout({
   children,
@@ -22,6 +40,8 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigation = [
     {
@@ -31,7 +51,7 @@ export default function DashboardLayout({
     },
     {
       name: "Orders",
-      href: "/dashboard/orders",
+      href: "/orders",
       icon: ShoppingCart,
     },
     {
@@ -41,7 +61,7 @@ export default function DashboardLayout({
     },
     {
       name: "Profile",
-      href: "/dashboard/profile",
+      href: "/profile",
       icon: User,
     },
   ];
@@ -70,72 +90,127 @@ export default function DashboardLayout({
     return pathname.startsWith(href);
   };
 
-  return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r flex flex-col">
-        <div className="p-6 border-b">
-          <h1 className="text-2xl font-bold text-blue-600">DarNumber</h1>
-          <p className="text-sm text-muted-foreground mt-1">SMS Verification</p>
+  const SidebarContentComponent = () => (
+    <>
+      <div className="p-6 border-b">
+        <h1 className="text-2xl font-bold text-blue-600">DarNumber</h1>
+        <p className="text-sm text-muted-foreground mt-1">SMS Verification</p>
+      </div>
+
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {navigation.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              onClick={() => isMobile && setMobileMenuOpen(false)}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                isActive(item.href)
+                  ? "bg-blue-50 text-blue-600 font-medium"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              {item.name}
+            </Link>
+          );
+        })}
+
+        {user?.role === "ADMIN" && (
+          <>
+            <div className="border-t my-4" />
+            {adminNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={() => isMobile && setMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive(item.href)
+                      ? "bg-purple-50 text-purple-600 font-medium"
+                      : "text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </>
+        )}
+      </nav>
+
+      <div className="p-4 border-t">
+        <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+          <p className="text-sm font-medium truncate">
+            {user?.name || user?.email}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {user?.email}
+          </p>
         </div>
+        <Button variant="outline" className="w-full" onClick={handleLogout}>
+          <LogOut className="w-4 h-4 mr-2" />
+          Logout
+        </Button>
+      </div>
+    </>
+  );
 
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {navigation.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  isActive(item.href)
-                    ? "bg-blue-50 text-blue-600 font-medium"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <Icon className="w-5 h-5" />
-                {item.name}
-              </Link>
-            );
-          })}
-
-          {user?.role === "ADMIN" && (
-            <>
-              <div className="border-t my-4" />
-              {adminNav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                      isActive(item.href)
-                        ? "bg-purple-50 text-purple-600 font-medium"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </>
-          )}
-        </nav>
-
-        <div className="p-4 border-t">
-          <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-            <p className="text-sm font-medium">{user?.name || user?.email}</p>
-            <p className="text-xs text-muted-foreground">{user?.email}</p>
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50">
+        {/* Mobile Header */}
+        <header className="sticky top-0 z-50 w-full border-b bg-white">
+          <div className="flex h-16 items-center justify-between px-4">
+            <h1 className="text-xl font-bold text-blue-600">DarNumber</h1>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <Menu className="h-6 w-6" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-64 p-0">
+                <div className="flex flex-col h-full">
+                  <SidebarContentComponent />
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleLogout}>
-            <LogOut className="w-4 h-4 mr-2" />
-            Logout
-          </Button>
-        </div>
-      </aside>
+        </header>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">{children}</main>
-    </div>
+        {/* Mobile Main Content */}
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
+    );
+  }
+
+  return (
+    <SidebarProvider>
+      <div className="flex h-screen w-full bg-gray-50">
+        {/* Desktop Sidebar */}
+        <Sidebar className="border-r bg-white">
+          <SidebarContent className="flex flex-col h-full">
+            <SidebarContentComponent />
+          </SidebarContent>
+        </Sidebar>
+
+        {/* Desktop Main Content */}
+        <SidebarInset className="flex-1">
+          <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b bg-white px-4">
+            <SidebarTrigger />
+            <Separator orientation="vertical" className="h-6" />
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {pathname.split("/").filter(Boolean).join(" / ")}
+              </span>
+            </div>
+          </header>
+          <main className="flex-1 overflow-y-auto">{children}</main>
+        </SidebarInset>
+      </div>
+    </SidebarProvider>
   );
 }
