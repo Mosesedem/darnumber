@@ -486,21 +486,135 @@ export class PaymentService {
       .update(rawBody)
       .digest("hex");
     if (!signature || signature !== hash) return { ok: false, status: 401 };
+
     const event = JSON.parse(rawBody);
+    console.log(
+      "[Paystack Webhook] Event:",
+      event?.event,
+      "Data:",
+      JSON.stringify(event?.data || {}).substring(0, 200)
+    );
+
+    // Handle regular charge success (card/bank transfer/USSD payments)
     if (event?.event === "charge.success") {
       const ref = event?.data?.reference;
       const amount = Number(event?.data?.amount ?? 0) / 100;
+
       if (ref) {
         const txn = await prisma.transaction.findFirst({
           where: { referenceId: ref },
         });
-        if (txn && txn.status === "PENDING")
+        if (txn && txn.status === "PENDING") {
+          console.log(
+            "[Paystack Webhook] Completing charge for ref:",
+            ref,
+            "amount:",
+            amount
+          );
           await this.completeDeposit(txn.userId, txn.id, amount, {
             provider: "paystack",
             reference: ref,
+            channel: event?.data?.channel,
           });
+        }
       }
     }
+
+    // Handle dedicated virtual account transactions
+    // Event: "charge.success" with paid_at and customer details
+    // Or sometimes "customeridentification.success" for DVA assignment
+    if (event?.event === "charge.success" && event?.data?.customer?.email) {
+      const customerEmail = event?.data?.customer?.email;
+      const amount = Number(event?.data?.amount ?? 0) / 100;
+      const paidAt = event?.data?.paid_at;
+      const channel = event?.data?.channel; // "dedicated_nuban" for virtual account
+
+      // Check if this is a DVA transaction (no reference from our system)
+      if (
+        channel === "dedicated_nuban" ||
+        (paidAt && !event?.data?.metadata?.created_from_initialize)
+      ) {
+        console.log(
+          "[Paystack Webhook] DVA transaction detected for:",
+          customerEmail,
+          "amount:",
+          amount,
+          "channel:",
+          channel
+        );
+
+        // Find user by email
+        const user = await prisma.user.findUnique({
+          where: { email: customerEmail },
+        });
+
+        if (user) {
+          // Create a new transaction for this DVA deposit
+          const transactionNumber = `DVA-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 9)}`;
+          const reference = event?.data?.reference || transactionNumber;
+
+          // Check if we already processed this reference
+          const existingTxn = await prisma.transaction.findFirst({
+            where: { referenceId: reference },
+          });
+
+          if (!existingTxn) {
+            console.log(
+              "[Paystack Webhook] Creating new DVA transaction for user:",
+              user.id
+            );
+
+            const newTxn = await prisma.transaction.create({
+              data: {
+                userId: user.id,
+                transactionNumber,
+                type: "DEPOSIT",
+                amount: amount,
+                currency: "NGN",
+                balanceBefore: 0 as any,
+                balanceAfter: 0 as any,
+                status: "PENDING",
+                description: "Deposit via Paystack Virtual Account",
+                paymentMethod: "paystack",
+                referenceId: reference,
+                paymentDetails: {
+                  channel,
+                  paidAt,
+                  customer: event?.data?.customer,
+                },
+              },
+            });
+
+            await this.completeDeposit(user.id, newTxn.id, amount, {
+              provider: "paystack",
+              reference,
+              channel,
+              type: "virtual_account",
+            });
+
+            console.log(
+              "[Paystack Webhook] DVA deposit completed for user:",
+              user.id,
+              "txn:",
+              newTxn.id
+            );
+          } else {
+            console.log(
+              "[Paystack Webhook] DVA transaction already exists, skipping:",
+              reference
+            );
+          }
+        } else {
+          console.log(
+            "[Paystack Webhook] User not found for email:",
+            customerEmail
+          );
+        }
+      }
+    }
+
     return { ok: true, status: 200 };
   }
 

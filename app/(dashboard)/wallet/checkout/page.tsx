@@ -6,9 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 type Provider = "etegram" | "paystack" | "flutterwave";
 
 export default function CheckoutPage() {
@@ -119,11 +116,7 @@ export default function CheckoutPage() {
       <div className="container mx-auto p-4 md:p-6 max-w-2xl space-y-4 md:space-y-6">
         <h1 className="text-xl md:text-2xl font-bold">Fund Wallet</h1>
 
-        {error && (
-          <Alert variant="destructive" className="text-sm md:text-base">
-            {error}
-          </Alert>
-        )}
+        {error && <p className="text-sm md:text-base text-red-700">{error}</p>}
 
         <Card className="p-4 md:p-6 space-y-4 md:space-y-6">
           <form onSubmit={onSubmit} className="space-y-4">
@@ -190,10 +183,10 @@ export default function CheckoutPage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1">
               <h2 className="font-semibold text-sm md:text-base">
-                Optional: Dedicated Bank Account
+                Dedicated Bank Account
               </h2>
               <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                Request a personal virtual account (Paystack) for easy top-ups.
+                Request a personal virtual account for easy top-ups.
               </p>
             </div>
             <Button
@@ -206,9 +199,7 @@ export default function CheckoutPage() {
             </Button>
           </div>
           {dvaError && (
-            <Alert variant="destructive" className="text-xs md:text-sm">
-              {dvaError}
-            </Alert>
+            <p className="text-xs md:text-sm text-red-700">{dvaError}</p>
           )}
           {dva && (
             <div className="border rounded-lg p-3 md:p-4 text-xs md:text-sm space-y-1">
