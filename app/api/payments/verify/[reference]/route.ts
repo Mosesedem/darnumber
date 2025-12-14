@@ -15,7 +15,11 @@ export async function GET(
     const provider = sp.get("provider");
     if (!provider) return error("provider required", 400);
     const svc = new PaymentService();
-    const data = await svc.verifyPayment({ userId: session.user.id, reference: params.reference, provider: provider as any });
+    const data = await svc.verifyPayment({
+      userId: session.user.id,
+      reference: params.reference,
+      provider: provider as any,
+    });
     return json({ ok: true, data });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")

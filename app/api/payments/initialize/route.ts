@@ -12,7 +12,11 @@ export async function POST(req: NextRequest) {
     const { amount, provider } = body || {};
     if (!amount || !provider) return error("amount and provider required", 400);
     const svc = new PaymentService();
-    const data = await svc.initializePayment({ userId: session.user.id, amount: Number(amount), provider });
+    const data = await svc.initializePayment({
+      userId: session.user.id,
+      amount: Number(amount),
+      provider,
+    });
     return json({ ok: true, data });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")

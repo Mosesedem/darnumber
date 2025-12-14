@@ -270,6 +270,14 @@ class ApiClient {
     return response.data;
   }
 
+  async requestPaystackDedicatedAccount(preferredBank?: string) {
+    const response = await this.client.post(
+      "/payments/paystack/dedicated-account",
+      preferredBank ? { preferredBank } : {}
+    );
+    return response.data;
+  }
+
   // ============================================
   // ADMIN METHODS
   // ============================================
