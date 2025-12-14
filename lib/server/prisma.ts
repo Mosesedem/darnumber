@@ -1,11 +1,26 @@
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/app/generated/prisma/client";
 
-const globalForPrisma = global as unknown as { prisma?: PrismaClient };
+const globalForPrisma = global as unknown as {
+  prisma?: PrismaClient;
+  pool?: Pool;
+};
+
+// Create connection pool
+if (!globalForPrisma.pool) {
+  globalForPrisma.pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+}
+
+const pool = globalForPrisma.pool;
+const adapter = new PrismaPg(pool);
 
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    accelerateUrl: process.env.PRISMA_ACCELERATE_URL || "",
+    adapter,
     log: ["warn", "error"],
   });
 

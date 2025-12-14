@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       return error("userName query param required (min 3 chars)", 400);
     }
 
-    const existing = await prisma.user.findUnique({ where: { userName } });
+    const existing = await prisma.user.findFirst({ where: { userName } });
     const available = !existing;
     return json({ ok: true, available });
   } catch (e) {
