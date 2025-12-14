@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -23,8 +24,13 @@ export default function ForgetPasswordPage() {
     try {
       await api.requestPasswordReset(email);
       setSuccess(true);
+      toast.info("If an account exists, a reset link has been sent.");
     } catch (err: any) {
       setError(
+        err.response?.data?.error ||
+          "Failed to send reset email. Please try again."
+      );
+      toast.error(
         err.response?.data?.error ||
           "Failed to send reset email. Please try again."
       );

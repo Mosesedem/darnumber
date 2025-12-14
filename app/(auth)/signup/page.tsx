@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -23,6 +24,53 @@ export default function SignupPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [userNameAvailable, setUserNameAvailable] = useState<null | boolean>(
+    null
+  );
+  const [checkingUserName, setCheckingUserName] = useState(false);
+
+  // simple debounce util
+  const debounce = (fn: (...args: any[]) => void, delay = 400) => {
+    let timer: any;
+    return (...args: any[]) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    };
+  };
+
+  const checkUserName = useMemo(
+    () =>
+      debounce(async (value: string) => {
+        if (!value || value.trim().length < 3) {
+          setUserNameAvailable(null);
+          setCheckingUserName(false);
+          return;
+        }
+        try {
+          setCheckingUserName(true);
+          const res = await fetch(
+            `/api/auth/username?userName=${encodeURIComponent(value.trim())}`
+          );
+          const data = await res.json();
+          if (!res.ok || !data?.ok) {
+            setUserNameAvailable(null);
+          } else {
+            setUserNameAvailable(Boolean(data.available));
+          }
+        } catch {
+          setUserNameAvailable(null);
+        } finally {
+          setCheckingUserName(false);
+        }
+      }, 500),
+    []
+  );
+
+  useEffect(() => {
+    checkUserName(formData.userName);
+  }, [formData.userName, checkUserName]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -60,12 +108,16 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) {
-        setError(data?.error?.message || "Registration failed");
+        const msg = data?.error?.message || "Registration failed";
+        setError(msg);
+        toast.error(msg);
       } else {
+        toast.success("Account created successfully. Please sign in.");
         router.push("/login?registered=true");
       }
     } catch (err: any) {
       setError("Registration failed. Please try again.");
+      toast.error("Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -99,6 +151,19 @@ export default function SignupPage() {
               required
               disabled={loading}
             />
+            <div className="mt-1 text-xs">
+              {checkingUserName && (
+                <span className="text-muted-foreground">
+                  Checking availability…
+                </span>
+              )}
+              {!checkingUserName && userNameAvailable === true && (
+                <span className="text-green-600">Username is available</span>
+              )}
+              {!checkingUserName && userNameAvailable === false && (
+                <span className="text-red-600">Username is already taken</span>
+              )}
+            </div>
           </div>
 
           <div>
@@ -130,16 +195,26 @@ export default function SignupPage() {
 
           <div>
             <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="••••••••"
-              required
-              disabled={loading}
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="••••••••"
+                required
+                disabled={loading}
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-2 my-auto text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               Must be at least 8 characters with uppercase, lowercase, and
               number
@@ -148,16 +223,30 @@ export default function SignupPage() {
 
           <div>
             <Label htmlFor="confirmPassword">Confirm Password</Label>
-            <Input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              placeholder="••••••••"
-              required
-              disabled={loading}
-            />
+            <div className="relative">
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                placeholder="••••••••"
+                required
+                disabled={loading}
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-2 my-auto text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                aria-label={
+                  showConfirmPassword
+                    ? "Hide confirm password"
+                    : "Show confirm password"
+                }
+              >
+                {showConfirmPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
 
           <div>
@@ -172,7 +261,15 @@ export default function SignupPage() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={
+              loading ||
+              userNameAvailable === false ||
+              formData.userName.trim().length < 3
+            }
+          >
             {loading ? "Creating account..." : "Create Account"}
           </Button>
         </form>
