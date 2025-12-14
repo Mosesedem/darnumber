@@ -304,19 +304,35 @@ export class SMSManService {
       console.log("[SMSManService] Fetching countries:", countriesUrl);
       const countriesRes = await fetch(countriesUrl);
       const countriesData = await countriesRes.json();
-      console.log("[SMSManService] Countries raw response type:", typeof countriesData);
+      console.log(
+        "[SMSManService] Countries raw response type:",
+        typeof countriesData
+      );
 
       // SMS-Man API returns countries as an object with numeric keys, not an array
       let countries: any[] = [];
-      if (typeof countriesData === 'object' && countriesData !== null && !Array.isArray(countriesData)) {
+      if (
+        typeof countriesData === "object" &&
+        countriesData !== null &&
+        !Array.isArray(countriesData)
+      ) {
         // Convert object to array
         countries = Object.values(countriesData);
-        console.log("[SMSManService] Converted countries object to array, length:", countries.length);
+        console.log(
+          "[SMSManService] Converted countries object to array, length:",
+          countries.length
+        );
       } else if (Array.isArray(countriesData)) {
         countries = countriesData;
-        console.log("[SMSManService] Countries already in array format, length:", countries.length);
+        console.log(
+          "[SMSManService] Countries already in array format, length:",
+          countries.length
+        );
       } else {
-        console.error("[SMSManService] Countries API error - unexpected format:", typeof countriesData);
+        console.error(
+          "[SMSManService] Countries API error - unexpected format:",
+          typeof countriesData
+        );
         throw new Error(
           `SMS-Man Countries API error: Expected object or array, got ${typeof countriesData}`
         );
@@ -329,27 +345,41 @@ export class SMSManService {
       console.log("[SMSManService] Fetching applications:", applicationsUrl);
       const applicationsRes = await fetch(applicationsUrl);
       const applicationsData = await applicationsRes.json();
-      console.log("[SMSManService] Applications raw response type:", typeof applicationsData);
+      console.log(
+        "[SMSManService] Applications raw response type:",
+        typeof applicationsData
+      );
 
       // SMS-Man API might return applications as an object with numeric keys, not an array
       let applications: any[] = [];
-      if (typeof applicationsData === 'object' && applicationsData !== null && !Array.isArray(applicationsData)) {
+      if (
+        typeof applicationsData === "object" &&
+        applicationsData !== null &&
+        !Array.isArray(applicationsData)
+      ) {
         // Convert object to array
         applications = Object.values(applicationsData);
-        console.log("[SMSManService] Converted applications object to array, length:", applications.length);
+        console.log(
+          "[SMSManService] Converted applications object to array, length:",
+          applications.length
+        );
       } else if (Array.isArray(applicationsData)) {
         applications = applicationsData;
-        console.log("[SMSManService] Applications already in array format, length:", applications.length);
+        console.log(
+          "[SMSManService] Applications already in array format, length:",
+          applications.length
+        );
       } else {
-        console.error("[SMSManService] Applications API error - unexpected format:", typeof applicationsData);
+        console.error(
+          "[SMSManService] Applications API error - unexpected format:",
+          typeof applicationsData
+        );
         throw new Error(
           `SMS-Man Applications API error: Expected object or array, got ${typeof applicationsData}`
         );
       }
 
-      console.log(
-        `[SMSManService] Found ${applications.length} applications`
-      );
+      console.log(`[SMSManService] Found ${applications.length} applications`);
 
       // Get current prices for all countries
       const pricesUrl = `${this.apiUrl}/get-prices?token=${this.apiKey}`;
@@ -606,9 +636,13 @@ export class TextVerifiedService {
   private apiKey = process.env.TEXTVERIFIED_API_KEY || "";
 
   async getAvailableServices() {
-    console.log("[TextVerifiedService] getAvailableServices - TEMPORARILY DISABLED");
+    console.log(
+      "[TextVerifiedService] getAvailableServices - TEMPORARILY DISABLED"
+    );
     // Temporarily disable TextVerified to focus on SMS-Man
-    console.log("[TextVerifiedService] TextVerified temporarily disabled - returning empty array");
+    console.log(
+      "[TextVerifiedService] TextVerified temporarily disabled - returning empty array"
+    );
     return [];
 
     /* TEMPORARILY DISABLED - FIXING API ENDPOINT
