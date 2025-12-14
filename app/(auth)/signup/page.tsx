@@ -14,6 +14,7 @@ import { Alert } from "@/components/ui/alert";
 export default function SignupPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -97,13 +98,13 @@ export default function SignupPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name: formData.name || undefined,
           email: formData.email,
           password: formData.password,
           userName: formData.userName,
           phone: formData.phone || undefined,
           country: formData.country || undefined,
           referralCode: formData.referralCode || undefined,
-          name: formData.userName,
         }),
       });
       const data = await res.json();
@@ -112,8 +113,21 @@ export default function SignupPage() {
         setError(msg);
         toast.error(msg);
       } else {
-        toast.success("Account created successfully. Please sign in.");
-        router.push("/login?registered=true");
+        toast.success("Account created successfully. Signing you in...");
+        // Auto-login after successful signup
+        const loginRes = await signIn("credentials", {
+          identifier: formData.email,
+          password: formData.password,
+          redirect: false,
+        });
+        if (loginRes?.error) {
+          // If auto-login fails, redirect to login page
+          toast.info("Please sign in with your credentials.");
+          router.push("/login?registered=true");
+        } else {
+          toast.success("Welcome! You're now signed in.");
+          router.push("/dashboard");
+        }
       }
     } catch (err: any) {
       setError("Registration failed. Please try again.");
@@ -140,6 +154,18 @@ export default function SignupPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="name">Full Name</Label>
+            <Input
+              id="name"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              placeholder="John Doe"
+              disabled={loading}
+            />
+          </div>
+
           <div>
             <Label htmlFor="userName">Username</Label>
             <Input

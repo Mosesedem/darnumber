@@ -8,13 +8,13 @@ export const authOptions: NextAuthOptions = {
     Credentials({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        identifier: { label: "Email, Username, or Phone", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.identifier || !credentials?.password) return null;
         const user = await verifyUserCredentials(
-          credentials.email,
+          credentials.identifier,
           credentials.password
         );
         if (!user) return null;

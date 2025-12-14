@@ -16,11 +16,13 @@ export async function createUser(params: {
   email: string;
   password: string;
   userName: string;
+  name?: string | null;
   phone?: string | null;
   country?: string | null;
   referralCode?: string | null;
 }) {
-  const { email, password, userName, phone, country, referralCode } = params;
+  const { email, password, userName, name, phone, country, referralCode } =
+    params;
   const existing = await findUserByEmail(email);
   if (existing) throw new Error("Email already in use");
   const hash = await bcrypt.hash(password, 10);
@@ -29,6 +31,7 @@ export async function createUser(params: {
       email,
       password: hash,
       userName,
+      name,
       phone,
       country,
       referredBy: referralCode ?? undefined,
@@ -37,8 +40,20 @@ export async function createUser(params: {
   return toSafeUser(user);
 }
 
-export async function verifyUserCredentials(email: string, password: string) {
-  const user = await findUserByEmail(email);
+export async function verifyUserCredentials(
+  identifier: string,
+  password: string
+) {
+  // Try to find user by email, username, or phone
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: identifier },
+        { userName: identifier },
+        { phone: identifier },
+      ],
+    },
+  });
   if (!user || !user.password) return null;
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) return null;
