@@ -3,6 +3,50 @@ import { RedisService } from "@/lib/server/services/redis.service";
 
 const redis = new RedisService();
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A robust fetch wrapper that handles retries with exponential backoff for network errors.
+ * @param url The URL to fetch.
+ * @param options The fetch options.
+ * @param retries Number of retries to attempt.
+ * @param backoff Initial backoff delay in ms.
+ * @returns The fetch Response object.
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+  backoff = 300
+): Promise<Response> {
+  try {
+    const res = await fetch(url, options);
+    if (res.status === 429 && retries > 0) {
+      const retryAfter = parseInt(res.headers.get("Retry-After") || "1");
+      console.warn(
+        `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`
+      );
+      await delay(retryAfter * 1000);
+      return fetchWithRetry(url, options, retries - 1, backoff);
+    }
+    return res;
+  } catch (e: any) {
+    if (
+      (e.code === "ECONNRESET" || e.message.includes("fetch failed")) &&
+      retries > 0
+    ) {
+      console.warn(
+        `[fetchWithRetry] Network error (${
+          e.code || "FETCH_FAILED"
+        }). Retrying in ${backoff}ms... (${retries} retries left)`
+      );
+      await delay(backoff);
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    throw e;
+  }
+}
+
 interface CreateOrderInput {
   userId: string;
   serviceCode: string;
@@ -507,7 +551,7 @@ export class TextVerifiedService {
     }
 
     const authUrl = `${this.apiUrl}/auth`;
-    const response = await fetch(authUrl, {
+    const response = await fetchWithRetry(authUrl, {
       method: "POST",
       headers: {
         "X-API-KEY": this.apiKey,
@@ -554,7 +598,7 @@ export class TextVerifiedService {
       const servicesUrl = `${this.apiUrl}/services?${servicesParams}`;
       console.log(`[TextVerified] Fetching services from: ${servicesUrl}`);
 
-      const servicesResponse = await fetch(servicesUrl, {
+      const servicesResponse = await fetchWithRetry(servicesUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${bearerToken}`,
@@ -604,162 +648,21 @@ export class TextVerifiedService {
         return [];
       }
 
-      // Fetch pricing for each service with rate limiting
-      console.log(`[TextVerified] Fetching pricing with rate limiting...`);
-      const pricingUrl = `${this.apiUrl}/pricing/verifications`;
-
-      // Rate limiting configuration
-      const BATCH_SIZE = 10; // Process 10 services at a time
-      const DELAY_BETWEEN_BATCHES = 2000; // 2 second delay between batches
-      const DELAY_BETWEEN_REQUESTS = 100; // 100ms delay between individual requests
-      const MAX_SERVICES = 500; // Limit to first 500 services for reasonable load time
-
-      // Limit services to process
-      const limitedServicesList = servicesList.slice(0, MAX_SERVICES);
-      console.log(
-        `[TextVerified] Processing ${limitedServicesList.length} of ${servicesList.length} services (limited for performance)`
-      );
-
-      // Helper: delay function
-      const delay = (ms: number) =>
-        new Promise((resolve) => setTimeout(resolve, ms));
-
-      // Helper: robust pricing fetch trying id-based first, then fallbacks
-      const fetchPricing = async (
-        svc: any,
-        idx: number,
-        retries = 2
-      ): Promise<null | { price: number; raw?: any }> => {
-        const svcName = svc.serviceName || svc.name || svc.title || "";
-        const svcId = svc.id || svc.serviceId || svc.targetId || null;
-        const capability = svc.capability || "sms";
-
-        const common = {
-          areaCode: false,
-          carrier: false,
-          numberType: "mobile",
-          capability,
-        } as any;
-
-        const payloads: any[] = [];
-        if (svcId) payloads.push({ ...common, serviceId: svcId });
-        if (svcName) payloads.push({ ...common, serviceName: svcName });
-
-        let lastStatus = 0;
-        let lastBody: string | undefined;
-
-        for (const body of payloads) {
-          try {
-            const res = await fetch(pricingUrl, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${bearerToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(body),
-            });
-            lastStatus = res.status;
-
-            // Handle rate limiting with retry
-            if (res.status === 429 && retries > 0) {
-              const retryAfter = parseInt(
-                res.headers.get("Retry-After") || "5"
-              );
-              await delay(retryAfter * 1000);
-              return fetchPricing(svc, idx, retries - 1);
-            }
-
-            if (!res.ok) {
-              lastBody = await res.text().catch(() => undefined);
-              continue;
-            }
-
-            const data = await res.json().catch(() => ({}));
-            const priceCandidate =
-              (typeof data.price === "number" && data.price) ||
-              (typeof data.price === "string" && parseFloat(data.price)) ||
-              (Array.isArray(data?.prices) &&
-                data.prices.length > 0 &&
-                parseFloat(data.prices[0]?.price)) ||
-              0;
-            const price = Number.isFinite(priceCandidate)
-              ? Number(priceCandidate)
-              : 0;
-            if (!price || price <= 0) {
-              continue;
-            }
-
-            if ((idx + 1) % 50 === 0) {
-              console.log(
-                `[TextVerified] Processed ${idx + 1}/${
-                  limitedServicesList.length
-                } services...`
-              );
-            }
-            return { price, raw: data };
-          } catch (e) {
-            // Retry on error
-            if (retries > 0) {
-              await delay(1000);
-              return fetchPricing(svc, idx, retries - 1);
-            }
-          }
-        }
-        return null;
-      };
-
-      // Process services in batches with rate limiting
-      const servicesWithPricing: any[] = [];
-      const totalBatches = Math.ceil(limitedServicesList.length / BATCH_SIZE);
-
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const start = batchIndex * BATCH_SIZE;
-        const end = Math.min(start + BATCH_SIZE, limitedServicesList.length);
-        const batch = limitedServicesList.slice(start, end);
-
-        console.log(
-          `[TextVerified] Processing batch ${
-            batchIndex + 1
-          }/${totalBatches} (services ${start + 1}-${end})...`
-        );
-
-        // Process batch sequentially with small delays
-        for (let i = 0; i < batch.length; i++) {
-          const service = batch[i];
-          const globalIndex = start + i;
-          const pricing = await fetchPricing(service, globalIndex);
-
-          // Only include services with valid pricing
-          if (pricing && pricing.price > 0) {
-            servicesWithPricing.push({
-              code: service.serviceName || service.name || service.id,
-              name: service.serviceName || service.name || `${service.id}`,
-              country: "US",
-              countryName: "United States",
-              price: pricing.price,
-              count: 100,
-              providerId: "textverified",
-              currency: "USD",
-              capability: service.capability || "sms",
-            });
-          }
-
-          // Small delay between requests
-          if (i < batch.length - 1) {
-            await delay(DELAY_BETWEEN_REQUESTS);
-          }
-        }
-
-        // Delay between batches (except for the last batch)
-        if (batchIndex < totalBatches - 1) {
-          await delay(DELAY_BETWEEN_BATCHES);
-        }
-      }
-
-      const services = servicesWithPricing;
+      // Return services without pricing data. Pricing will be fetched on-demand.
+      const services = servicesList.map((service: any) => ({
+        code: service.serviceName || service.name || service.id,
+        name: service.serviceName || service.name || `${service.id}`,
+        country: "US",
+        countryName: "United States",
+        price: 0, // Price will be fetched on demand
+        count: 100, // Placeholder
+        providerId: "textverified",
+        currency: "USD",
+        capability: service.capability || "sms",
+      }));
 
       console.log(
-        `\n[TextVerified] ✅ Successfully processed ${services.length} services with pricing`
+        `\n[TextVerified] ✅ Successfully processed ${services.length} services (without pricing)`
       );
       console.log("╚═══════════════════════════════════════════════╝\n");
 
@@ -777,6 +680,75 @@ export class TextVerifiedService {
 
       return [];
     }
+  }
+
+  /**
+   * Fetches the price for a single service by its name and caches it in Redis.
+   * @param serviceName The name of the service (e.g., "google", "uber").
+   * @returns The price in USD, or null if not found.
+   */
+  async fetchAndCacheServicePrice(serviceName: string): Promise<number | null> {
+    const cacheKey = `textverified:price:${serviceName}`;
+
+    // 1. Check Redis cache first
+    const cachedPrice = await redis.get(cacheKey);
+    if (cachedPrice) {
+      console.log(
+        `[TextVerified][Cache] HIT for ${serviceName}: $${cachedPrice}`
+      );
+      return parseFloat(cachedPrice);
+    }
+
+    console.log(`[TextVerified][Cache] MISS for ${serviceName}. Fetching...`);
+
+    // 2. Fetch from API if not in cache
+    const bearerToken = await this.getBearerToken();
+    const pricingUrl = `${this.apiUrl}/pricing/verifications`;
+
+    const body = {
+      numberType: "mobile",
+      serviceName,
+    };
+
+    const res = await fetchWithRetry(pricingUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(
+        `[TextVerified] Pricing fetch failed for ${serviceName} (${res.status}): ${errorText}`
+      );
+      // Cache failure for a short period to avoid hammering the API
+      await redis.set(cacheKey, "-1", 60 * 5); // Cache failure for 5 mins
+      return null;
+    }
+
+    const data = await res.json();
+    const price =
+      (typeof data.price === "number" && data.price) ||
+      (typeof data.price === "string" && parseFloat(data.price)) ||
+      null;
+
+    if (price !== null && price > 0) {
+      console.log(
+        `[TextVerified] Fetched price for ${serviceName}: $${price}. Caching...`
+      );
+      // Cache for 12 hours
+      await redis.set(cacheKey, price.toString(), 60 * 60 * 12);
+      return price;
+    }
+
+    console.warn(
+      `[TextVerified] No valid price found for ${serviceName} in API response.`
+    );
+    await redis.set(cacheKey, "-1", 60 * 60); // Cache failure for 1 hour
+    return null;
   }
 
   async requestNumber(serviceCode: string, country: string) {

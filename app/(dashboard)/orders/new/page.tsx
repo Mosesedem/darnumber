@@ -72,6 +72,12 @@ export default function NewOrderPage() {
   >(new Map());
   const [usdToNgn, setUsdToNgn] = useState<number>(0);
   const [rubToUsd, setRubToUsd] = useState<number>(0);
+  const [servicePrices, setServicePrices] = useState<Record<string, number>>(
+    {}
+  );
+  const [isPriceLoading, setIsPriceLoading] = useState<Record<string, boolean>>(
+    {}
+  );
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -325,6 +331,42 @@ export default function NewOrderPage() {
     setSelectedCountry("");
   }, [selectedService]);
 
+  // Debounced price fetcher
+  const fetchPrice = useMemo(() => {
+    const debounce = (func, delay) => {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), delay);
+      };
+    };
+
+    const getPrice = async (serviceName: string) => {
+      if (!serviceName || servicePrices[serviceName] !== undefined) return;
+
+      setIsPriceLoading((prev) => ({ ...prev, [serviceName]: true }));
+      try {
+        const res = await api.getTextVerifiedPrice(serviceName);
+        if (res.ok && res.data.price > 0) {
+          setServicePrices((prev) => ({
+            ...prev,
+            [serviceName]: res.data.price,
+          }));
+        } else {
+          // Cache failure locally to avoid re-fetching
+          setServicePrices((prev) => ({ ...prev, [serviceName]: -1 }));
+        }
+      } catch (e) {
+        console.error(`Failed to fetch price for ${serviceName}`, e);
+        setServicePrices((prev) => ({ ...prev, [serviceName]: -1 }));
+      } finally {
+        setIsPriceLoading((prev) => ({ ...prev, [serviceName]: false }));
+      }
+    };
+
+    return debounce(getPrice, 300);
+  }, [servicePrices]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -415,9 +457,20 @@ export default function NewOrderPage() {
   // Virtualized row renderer for services list
   const renderServiceRow = ({ index, style }: ListChildComponentProps) => {
     const service = filteredServices[index];
-    const displayName = service.ui?.displayName || service.name;
-    const colorClass = "bg-gray-200"; // unify service badge color
-    const logo = "📱"; // unify service icon
+    const isSelected = selectedService === service.code;
+    const price = servicePrices[service.code];
+    const isLoadingPrice = isPriceLoading[service.code];
+
+    // Fetch price when the row is rendered
+    useEffect(() => {
+      if (
+        service.providers.some((p) => p.name.includes("textverified")) &&
+        price === undefined
+      ) {
+        fetchPrice(service.code);
+      }
+    }, [service.code, price]);
+
     return (
       <div
         style={style}
@@ -433,11 +486,20 @@ export default function NewOrderPage() {
           className="w-full flex items-center gap-3 text-left hover:bg-accent rounded-md px-2 py-2"
         >
           <div
-            className={`w-6 h-6 rounded-md flex items-center justify-center text-xs ${colorClass}`}
+            className={`w-6 h-6 rounded-md flex items-center justify-center text-xs bg-gray-200`}
           >
-            {logo}
+            📱
           </div>
-          <span className="font-medium truncate flex-1">{displayName}</span>
+          <span className="font-medium truncate flex-1">{service.name}</span>
+          <div className="flex-shrink-0">
+            {isLoadingPrice ? (
+              <Spinner className="w-4 h-4" />
+            ) : price && price > 0 ? (
+              <div className="font-mono text-sm">~${price.toFixed(2)}</div>
+            ) : (
+              <div className="text-xs text-muted-foreground">N/A</div>
+            )}
+          </div>
         </button>
       </div>
     );
