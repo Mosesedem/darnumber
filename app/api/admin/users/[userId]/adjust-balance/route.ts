@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const session = await requireAuth();
@@ -17,9 +17,10 @@ export async function POST(
     const { amount, reason } = body || {};
     if (typeof amount !== "number" || !reason)
       return error("amount and reason required", 400);
+    const { userId } = await params;
     const svc = new AdminService();
     const data = await svc.adjustBalance(
-      params.userId,
+      userId,
       amount,
       reason,
       session.user.id

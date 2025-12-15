@@ -7,15 +7,16 @@ export const runtime = "nodejs";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { ruleId: string } }
+  { params }: { params: Promise<{ ruleId: string }> }
 ) {
   try {
     const session = await requireAuth();
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")
       return error("Forbidden", 403);
     const body = await req.json();
+    const { ruleId } = await params;
     const svc = new AdminService();
-    const data = await svc.updatePricingRule(params.ruleId, body);
+    const data = await svc.updatePricingRule(ruleId, body);
     return json({ ok: true, data });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")
@@ -26,14 +27,15 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { ruleId: string } }
+  { params }: { params: Promise<{ ruleId: string }> }
 ) {
   try {
     const session = await requireAuth();
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")
       return error("Forbidden", 403);
+    const { ruleId } = await params;
     const svc = new AdminService();
-    await svc.deletePricingRule(params.ruleId);
+    await svc.deletePricingRule(ruleId);
     return json({ ok: true });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")

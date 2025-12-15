@@ -7,15 +7,16 @@ export const runtime = "nodejs";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { providerId: string } }
+  { params }: { params: Promise<{ providerId: string }> }
 ) {
   try {
     const session = await requireAuth();
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")
       return error("Forbidden", 403);
     const body = await req.json();
+    const { providerId } = await params;
     const svc = new AdminService();
-    const data = await svc.updateProvider(params.providerId, body);
+    const data = await svc.updateProvider(providerId, body);
     return json({ ok: true, data });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")
