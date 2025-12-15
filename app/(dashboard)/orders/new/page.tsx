@@ -86,25 +86,54 @@ export default function NewOrderPage() {
   useEffect(() => {
     const loadCountries = async () => {
       try {
-        const res = await fetch(
-          "https://api.sms-man.com/control/countries?token=" +
-            process.env.SMSMAN_API_KEY
-        );
-        if (!res.ok) throw new Error("Failed to fetch countries");
-        const data = (await res.json()) as Record<
-          string,
-          { id: string; title: string; code: string }
-        >;
         const map = new Map<string, string>();
-        Object.values(data).forEach((c) => {
-          if (c?.code) {
-            map.set(String(c.code).toUpperCase(), c.title);
+        // Prefer server-proxied list (supports server env secret)
+        try {
+          const res = await fetch("/api/providers/smsman/countries");
+          if (res.ok) {
+            const out = await res.json();
+            const countries = out?.data?.countries || {};
+            Object.entries(countries).forEach(([code, title]) => {
+              if (code && title)
+                map.set(String(code).toUpperCase(), String(title));
+            });
           }
-        });
+        } catch (_) {
+          // ignore and fallback
+        }
+
+        // Fallback to static country list if API/token unavailable
+        if (map.size === 0) {
+          try {
+            const mod = await import("@/lib/constants/countries");
+            const list = mod.getCountryList?.() || [];
+            list.forEach((c: any) => {
+              if (c?.code && c?.name) {
+                map.set(String(c.code).toUpperCase(), c.name);
+              }
+            });
+          } catch (_) {
+            // ignore
+          }
+        }
+
         setCountryNameByCode(map);
       } catch (e) {
         console.error("[NewOrderPage] Failed to fetch countries list:", e);
-        // Leave map empty; UI will fall back to service.country
+        // Try fallback to static country list
+        try {
+          const mod = await import("@/lib/constants/countries");
+          const list = mod.getCountryList?.() || [];
+          const map = new Map<string, string>();
+          list.forEach((c: any) => {
+            if (c?.code && c?.name) {
+              map.set(String(c.code).toUpperCase(), c.name);
+            }
+          });
+          setCountryNameByCode(map);
+        } catch (_) {
+          // Leave map empty; UI will fall back to service.country
+        }
       }
     };
     loadCountries();
@@ -392,11 +421,8 @@ export default function NewOrderPage() {
 
     try {
       const provider = providers.find((p) => p.id === selectedProvider);
-      const price =
-        currentProvider?.name.includes("textverified") &&
-        servicePrices[selectedService] > 0
-          ? servicePrices[selectedService]
-          : currentPriceUsd;
+      // Always charge in NGN (backend stores and operates in NGN)
+      const price = currentPriceNgn;
 
       if (!price || price <= 0) {
         setError(
@@ -410,13 +436,13 @@ export default function NewOrderPage() {
         serviceCode: selectedService,
         country: selectedCountry,
         provider: provider?.name,
-        price: price, // Pass the final price in USD
+        price: price, // NGN amount
       });
       console.log("[NewOrderPage] Creating order with pricing:", {
         serviceCode: selectedService,
         country: selectedCountry,
         provider: provider?.name,
-        price_usd: price,
+        price_ngn: price,
       });
 
       if (response.ok) {

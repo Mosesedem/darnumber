@@ -275,6 +275,7 @@ export class OrderService {
       console.log("[OrderService] cache hit", cached);
       return cached;
     }
+
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -282,7 +283,6 @@ export class OrderService {
         orderNumber: true,
         phoneNumber: true,
         status: true,
-        smsCode: true,
         expiresAt: true,
         createdAt: true,
         finalPrice: true,
@@ -290,9 +290,82 @@ export class OrderService {
         serviceCode: true,
         country: true,
         providerId: true,
+        externalId: true,
       },
     });
     if (!order) return null;
+
+    // Auto-expire orders that have passed their expiry window
+    if (
+      order.expiresAt &&
+      new Date(order.expiresAt).getTime() < Date.now() &&
+      (order.status === "PENDING" ||
+        order.status === "PROCESSING" ||
+        order.status === "WAITING_FOR_SMS")
+    ) {
+      try {
+        // Attempt provider cancellation before refund
+        try {
+          if (order.externalId) {
+            const providerService = this.getProviderService(order.providerId);
+            if (providerService instanceof SMSManService) {
+              await providerService.cancelNumber(order.externalId);
+              await prisma.systemLog.create({
+                data: {
+                  level: "INFO",
+                  service: "order-processor",
+                  message: "Auto-expire: provider cancellation (SMS-Man)",
+                  metadata: {
+                    orderId: order.id,
+                    externalId: order.externalId,
+                    provider: order.providerId,
+                  },
+                },
+              });
+            } else if (providerService instanceof TextVerifiedService) {
+              await providerService.cancelVerification(order.externalId);
+              await prisma.systemLog.create({
+                data: {
+                  level: "INFO",
+                  service: "order-processor",
+                  message: "Auto-expire: provider cancellation (TextVerified)",
+                  metadata: {
+                    orderId: order.id,
+                    externalId: order.externalId,
+                    provider: order.providerId,
+                  },
+                },
+              });
+            }
+          }
+        } catch (e) {
+          console.error("[OrderService] Provider cancel on expire failed", e);
+          await prisma.systemLog.create({
+            data: {
+              level: "WARN",
+              service: "order-processor",
+              message: "Auto-expire: provider cancellation failed",
+              error: e instanceof Error ? e.message : String(e),
+              metadata: {
+                orderId: order.id,
+                externalId: order.externalId,
+                provider: order.providerId,
+              },
+            },
+          });
+        }
+
+        await this.refundOrder(order.id, "EXPIRED");
+        order.status = "EXPIRED";
+      } catch (e) {
+        console.error(
+          "[OrderService] Failed to auto-expire order",
+          order.id,
+          e
+        );
+      }
+    }
+
     const payload = {
       ...order,
       provider: order.providerId,
@@ -362,7 +435,7 @@ export class OrderService {
           transactionNumber: `REF-${Date.now()}-${order.id.slice(0, 4)}`,
           type: "REFUND",
           amount: order.price,
-          currency: "USD", // Assuming currency from order or user
+          currency: "NGN", // Align with system default and order currency
           balanceBefore: order.user.balance,
           balanceAfter: newBalance,
           status: "COMPLETED",
@@ -390,7 +463,59 @@ export class OrderService {
       throw new Error(`Order is in a non-cancellable state: ${order.status}`);
     }
 
-    // TODO: Add logic here to cancel the number with the provider (e.g., SMSManService.cancelNumber(order.externalId))
+    // Cancel the number with the provider if we have externalId
+    try {
+      if (order.externalId) {
+        const providerService = this.getProviderService(order.providerId);
+        if (providerService instanceof SMSManService) {
+          await providerService.cancelNumber(order.externalId);
+          await prisma.systemLog.create({
+            data: {
+              level: "INFO",
+              service: "order-processor",
+              message: "Provider cancellation executed (SMS-Man)",
+              metadata: {
+                orderId: order.id,
+                externalId: order.externalId,
+                provider: order.providerId,
+                reason: "USER_CANCELLED",
+              },
+            },
+          });
+        } else if (providerService instanceof TextVerifiedService) {
+          await providerService.cancelVerification(order.externalId);
+          await prisma.systemLog.create({
+            data: {
+              level: "INFO",
+              service: "order-processor",
+              message: "Provider cancellation executed (TextVerified)",
+              metadata: {
+                orderId: order.id,
+                externalId: order.externalId,
+                provider: order.providerId,
+                reason: "USER_CANCELLED",
+              },
+            },
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[OrderService] Provider cancel failed:", e);
+      await prisma.systemLog.create({
+        data: {
+          level: "WARN",
+          service: "order-processor",
+          message: "Provider cancellation failed",
+          error: e instanceof Error ? e.message : String(e),
+          metadata: {
+            orderId: order.id,
+            externalId: order.externalId,
+            provider: order.providerId,
+            reason: "USER_CANCELLED",
+          },
+        },
+      });
+    }
 
     await this.refundOrder(orderId, "USER_CANCELLED");
 
@@ -500,6 +625,17 @@ export class SMSManService {
         }`
       );
     }
+  }
+
+  async cancelNumber(externalId: string): Promise<void> {
+    if (!this.apiKey) throw new Error("SMS-Man API key not configured");
+    const url = `${this.apiUrl}/cancel-request?token=${this.apiKey}&request_id=${externalId}`;
+    const res = await fetch(url, { method: "GET" });
+    const data = await res.json();
+    if (data.success === false) {
+      throw new Error(data.error_msg || "Failed to cancel SMS-Man request");
+    }
+    console.log(`[SMSManService] Cancelled request ${externalId}`);
   }
 
   async requestNumber(
@@ -680,6 +816,23 @@ export class TextVerifiedService {
     console.log("[TextVerified] ✓ Bearer token generated successfully");
 
     return this.bearerToken;
+  }
+
+  async cancelVerification(verificationId: string): Promise<void> {
+    const bearerToken = await this.getBearerToken();
+    const url = `${this.apiUrl}/verifications/${verificationId}`;
+    const res = await fetchWithRetry(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Failed to cancel TextVerified verification: ${text}`);
+    }
+    console.log(`[TextVerified] Cancelled verification ${verificationId}`);
   }
 
   async getAvailableServices() {
