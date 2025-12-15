@@ -15,7 +15,7 @@ class ApiClient {
       headers: {
         "Content-Type": "application/json",
       },
-      timeout: 30000,
+      timeout: 60000,
     });
 
     // Request interceptor - add auth token
@@ -178,6 +178,27 @@ class ApiClient {
       params: { country, serviceCode },
     });
     return response.data;
+  }
+
+  // Provider-specific service fetchers (client-side filter from aggregated data)
+  async getSmsManServices(country?: string, serviceCode?: string) {
+    const data = await this.getAvailableServices(country, serviceCode);
+    const services = (data?.data?.services || []).filter((s: any) =>
+      (s.providers || []).some(
+        (p: any) => p.name === "sms-man" || p.id === "lion"
+      )
+    );
+    return { ok: true, data: { services } };
+  }
+
+  async getTextVerifiedServices(country?: string, serviceCode?: string) {
+    const data = await this.getAvailableServices(country, serviceCode);
+    const services = (data?.data?.services || []).filter((s: any) =>
+      (s.providers || []).some(
+        (p: any) => p.name === "textverified" || p.id === "panda"
+      )
+    );
+    return { ok: true, data: { services } };
   }
 
   async getAvailableProvidersForService(serviceCode: string, country: string) {

@@ -6,22 +6,30 @@ import {
   SMSManService,
   TextVerifiedService,
 } from "@/lib/server/services/order.service";
+import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service";
 
 export const runtime = "nodejs";
 
+// Pricing markup: 20% profit margin + 2000 NGN flat fee
+const MARKUP_PERCENTAGE = 0.2;
+const FLAT_FEE_NGN = 2000;
+
 export async function GET(req: NextRequest) {
-  console.log("=== GET /api/orders/services START ===");
+  console.log("\n╔════════════════════════════════════════════════╗");
+  console.log("║   GET /api/orders/services - Provider Aggregator");
+  console.log("╚════════════════════════════════════════════════╝");
   try {
-    console.log("1. Starting authentication check...");
+    console.log("[Auth] Authenticating user...");
     const authResult = await requireAuth();
-    console.log("2. Authentication successful:", {
-      userId: authResult?.id,
-      email: authResult?.email,
-    });
+    console.log(`[Auth] ✓ User ${authResult?.email} authenticated`);
 
-    console.log("3. Using hardcoded providers from constants...");
+    console.log("[Rates] Fetching exchange rates from cache/API...");
+    const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
+    const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
+    console.log(
+      `[Rates] ✓ 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`
+    );
 
-    // Hardcoded providers
     const providers = [
       {
         id: PROVIDERS.LION.id,
@@ -39,40 +47,46 @@ export async function GET(req: NextRequest) {
       },
     ];
 
-    console.log("4. Providers:", providers);
+    console.log(
+      `[Providers] Available: ${providers.map((p) => p.name).join(", ")}`
+    );
 
-    console.log("5. Fetching services from provider APIs...");
-
-    // Fetch services from each provider's API
     const servicesMap = new Map<string, any>();
 
-    // Fetch from SMS-Man
     let smsManServices: any[] = [];
     try {
-      console.log("5a. Fetching SMS-Man services...");
+      console.log("[SMSMan] Fetching services...");
       const smsManService = new SMSManService();
       smsManServices = await smsManService.getAvailableServices();
-      console.log("5b. SMS-Man services count:", smsManServices.length);
+      console.log(
+        `[SMSMan] ✓ Fetched ${smsManServices.length} services (RUB pricing)`
+      );
     } catch (err) {
-      console.error("5c. Error fetching SMS-Man services:", err);
+      console.error(
+        "[SMSMan] ✗ Error:",
+        err instanceof Error ? err.message : err
+      );
       smsManServices = [];
     }
 
-    // Fetch from TextVerified
     let tvServices: any[] = [];
     try {
-      console.log("5d. Fetching TextVerified services...");
+      console.log("[TextVerified] Fetching services...");
       const textVerifiedService = new TextVerifiedService();
       tvServices = await textVerifiedService.getAvailableServices();
-      console.log("5e. TextVerified services count:", tvServices.length);
+      console.log(
+        `[TextVerified] ✓ Fetched ${tvServices.length} services (USD pricing)`
+      );
     } catch (err) {
-      console.error("5f. Error fetching TextVerified services:", err);
+      console.error(
+        "[TextVerified] ✗ Error:",
+        err instanceof Error ? err.message : err
+      );
       tvServices = [];
     }
 
-    // Check if we have any services at all
     if (smsManServices.length === 0 && tvServices.length === 0) {
-      console.error("6. No services available from any provider");
+      console.error("[Error] No services available from any provider");
       return error(
         "No services available from providers. Please check API keys and try again.",
         503
@@ -80,20 +94,41 @@ export async function GET(req: NextRequest) {
     }
 
     console.log(
-      "6. Total services count:",
-      smsManServices.length + tvServices.length
+      `[Summary] Total raw services: SMS-Man ${
+        smsManServices.length
+      } + TextVerified ${tvServices.length} = ${
+        smsManServices.length + tvServices.length
+      }`
     );
 
-    // Process SMS-Man services (return accurate provider data, unify icon/color)
-    smsManServices.forEach((service: any) => {
+    // Process SMS-Man services: convert RUB → USD → apply markup (20% + 2000 NGN)
+    console.log(
+      "[Processing] Converting SMS-Man RUB prices to USD with full markup..."
+    );
+    smsManServices.forEach((service: any, idx: number) => {
       const key = `${service.code}-${service.country}`;
+      const priceRUB = service.price; // SMS-Man returns prices in Russian Rubles
+      const baseUSD = Number((priceRUB / rubToUsdRate).toFixed(4));
+      const flatFeeUSD = FLAT_FEE_NGN / usdToNgnRate;
+      const priceUSD = Number(
+        (baseUSD * (1 + MARKUP_PERCENTAGE) + flatFeeUSD).toFixed(2)
+      );
+
+      if (idx === 0) {
+        console.log(
+          `[SMSMan] Sample: ${priceRUB} RUB (provider) → ${baseUSD} USD → ${priceUSD} USD (×1.20 + ₦${FLAT_FEE_NGN})`
+        );
+      }
 
       if (!servicesMap.has(key)) {
         servicesMap.set(key, {
           code: service.code,
           name: service.name,
           country: service.country,
-          price: service.price,
+          price: priceUSD,
+          prices: { [PROVIDERS.LION.id]: priceUSD },
+          currency: "USD",
+          providerId: "sms-man",
           ui: {
             logo: "📱",
             color: "bg-gray-200",
@@ -109,6 +144,8 @@ export async function GET(req: NextRequest) {
         });
       } else {
         const existing = servicesMap.get(key);
+        existing.prices = existing.prices || {};
+        existing.prices[PROVIDERS.LION.id] = priceUSD;
         if (!existing.providers.find((p: any) => p.id === PROVIDERS.LION.id)) {
           existing.providers.push({
             id: PROVIDERS.LION.id,
@@ -119,16 +156,31 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // Process TextVerified services (return accurate provider data, unify icon/color)
-    tvServices.forEach((service: any) => {
+    // Process TextVerified services: USD prices → apply markup (20% + 2000 NGN)
+    console.log("[Processing] TextVerified services (USD) with full markup...");
+    tvServices.forEach((service: any, idx: number) => {
       const key = `${service.code}-${service.country}`;
+      const baseUSD = service.price;
+      const flatFeeUSD = FLAT_FEE_NGN / usdToNgnRate;
+      const priceUSD = Number(
+        (baseUSD * (1 + MARKUP_PERCENTAGE) + flatFeeUSD).toFixed(2)
+      );
+
+      if (idx === 0 && tvServices.length > 0) {
+        console.log(
+          `[TextVerified] Sample: ${service.name} = ${baseUSD} USD → ${priceUSD} USD (×1.20 + ₦${FLAT_FEE_NGN})`
+        );
+      }
 
       if (!servicesMap.has(key)) {
         servicesMap.set(key, {
           code: service.code,
           name: service.name,
           country: service.country,
-          price: service.price,
+          price: priceUSD,
+          prices: { [PROVIDERS.PANDA.id]: priceUSD },
+          currency: "USD",
+          providerId: "textverified",
           ui: {
             logo: "📱",
             color: "bg-gray-200",
@@ -144,6 +196,8 @@ export async function GET(req: NextRequest) {
         });
       } else {
         const existing = servicesMap.get(key);
+        existing.prices = existing.prices || {};
+        existing.prices[PROVIDERS.PANDA.id] = priceUSD;
         if (!existing.providers.find((p: any) => p.id === PROVIDERS.PANDA.id)) {
           existing.providers.push({
             id: PROVIDERS.PANDA.id,
@@ -159,29 +213,33 @@ export async function GET(req: NextRequest) {
       providers,
     };
 
-    console.log("8. ✅ Returning services:", {
-      servicesCount: result.services.length,
-      providersCount: result.providers.length,
-      sampleService: result.services[0] || null,
-      sampleProvider: result.providers[0] || null,
-    });
+    console.log("\n[Summary] ✓ Aggregation complete:");
+    console.log(`  • Total unique services: ${result.services.length}`);
+    console.log(`  • Providers: ${result.providers.length}`);
+    console.log(`  • All prices in: USD`);
+    console.log(`  • SMS-Man (RUB→USD): ${smsManServices.length} services`);
+    console.log(`  • TextVerified (USD): ${tvServices.length} services`);
+    if (result.services.length > 0) {
+      console.log(
+        "  • Sample service:",
+        JSON.stringify(result.services[0], null, 2)
+      );
+    }
+    console.log("╚════════════════════════════════════════════════╝\n");
 
-    console.log("=== GET /api/orders/services END (SUCCESS) ===");
     return json({ ok: true, data: result });
   } catch (e) {
-    console.error("=== GET /api/orders/services ERROR ===");
-    console.error("Error details:", {
+    console.error("\n[Error] ✗ Request failed");
+    console.error("Details:", {
       message: e instanceof Error ? e.message : "Unknown error",
       stack: e instanceof Error ? e.stack : undefined,
-      error: e,
     });
 
     if (e instanceof Error && e.message === "Unauthorized") {
-      console.log("Returning 401 Unauthorized");
       return error("Unauthorized", 401);
     }
 
-    console.log("Returning 500 Unexpected error");
+    console.log("╚════════════════════════════════════════════════╝\n");
     return error("Unexpected error", 500);
   }
 }

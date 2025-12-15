@@ -492,3 +492,18 @@ model SystemConfig {
 
   @@map("system_config")
 }
+
+model ExchangeRate {
+  id           String  @id @default(cuid())
+  fromCurrency String  @map("from_currency") // e.g., "USD"
+  toCurrency   String  @map("to_currency") // e.g., "NGN", "RUB"
+  rate         Decimal @db.Decimal(15, 6) // Exchange rate
+  source       String  @default("openexchangerates") // API source
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([fromCurrency, toCurrency])
+  @@index([fromCurrency, toCurrency, updatedAt])
+  @@map("exchange_rates")
+}

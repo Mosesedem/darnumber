@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useMemo, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { SessionProvider, signIn, signOut, useSession } from "next-auth/react";
 
@@ -46,12 +46,13 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
 
   const loading = status === "loading";
 
-  // Simple redirect logic: if not authed and route is protected, go to login
-  if (!loading) {
+  // Redirect logic should not run during render; perform in an effect
+  useEffect(() => {
+    if (loading) return;
     const isPublic = publicRoutes.includes(pathname);
-    if (!user && !isPublic) router.push("/login");
-    if (user && isPublic) router.push("/dashboard");
-  }
+    if (!user && !isPublic) router.replace("/login");
+    if (user && isPublic) router.replace("/dashboard");
+  }, [loading, user, pathname, router]);
 
   const value = useMemo<AuthContextType>(
     () => ({

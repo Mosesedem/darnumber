@@ -17,7 +17,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Search,
@@ -71,6 +70,8 @@ export default function NewOrderPage() {
   const [countryNameByCode, setCountryNameByCode] = useState<
     Map<string, string>
   >(new Map());
+  const [usdToNgn, setUsdToNgn] = useState<number>(0);
+  const [rubToUsd, setRubToUsd] = useState<number>(0);
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -80,7 +81,8 @@ export default function NewOrderPage() {
     const loadCountries = async () => {
       try {
         const res = await fetch(
-          "https://api.sms-man.com/control/countries?token=73443e6f24e7883adcbfb3d3fae11de7"
+          "https://api.sms-man.com/control/countries?token=" +
+            process.env.SMSMAN_API_KEY
         );
         if (!res.ok) throw new Error("Failed to fetch countries");
         const data = (await res.json()) as Record<
@@ -104,6 +106,45 @@ export default function NewOrderPage() {
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  // Fetch exchange rates: RUB→USD and USD→NGN
+  useEffect(() => {
+    const loadRates = async () => {
+      try {
+        const res = await fetch(
+          "https://openexchangerates.org/api/latest.json?app_id=5e1de33c06ec43ad8047ef4b9fc163c4"
+        );
+        if (!res.ok) throw new Error("Failed to fetch exchange rates");
+        const data = (await res.json()) as {
+          rates?: Record<string, number>;
+          base?: string;
+        };
+        const ngnRate = data?.rates?.NGN || 0;
+        const rubRate = data?.rates?.RUB || 0;
+
+        // Calculate RUB→USD (since base is USD, RUB rate is RUB per 1 USD)
+        // So 1 RUB = 1/rubRate USD
+        const rubToUsdRate = rubRate > 0 ? 1 / rubRate : 0;
+
+        setUsdToNgn(ngnRate);
+        setRubToUsd(rubToUsdRate);
+
+        console.log("[NewOrderPage] 💱 Exchange rates loaded:", {
+          base: data.base || "USD",
+          "USD → NGN": ngnRate,
+          "RUB → USD": rubToUsdRate.toFixed(6),
+          "1 RUB": `$${rubToUsdRate.toFixed(4)} = ₦${(
+            rubToUsdRate * ngnRate
+          ).toFixed(2)}`,
+        });
+      } catch (e) {
+        console.error("[NewOrderPage] Failed to fetch exchange rates:", e);
+        setUsdToNgn(0);
+        setRubToUsd(0);
+      }
+    };
+    loadRates();
   }, []);
 
   const fetchData = async () => {
@@ -186,15 +227,39 @@ export default function NewOrderPage() {
           s.code === selectedService &&
           s.providers.some((p) => p.id === selectedProvider)
       )
-      .map((s) => ({
-        code: s.country,
-        name:
-          countryNameByCode.get(String(s.country).toUpperCase()) || s.country,
-        price: s.price,
-      }));
+      .map((s) => {
+        // Backend sends USD price with full markup already applied: (base × 1.20) + 2000 NGN
+        // Frontend only converts USD → NGN
+        const priceUsd = (s as any).prices?.[selectedProvider] ?? s.price ?? 0;
+        const priceNgn = Math.round(priceUsd * (usdToNgn || 0));
+
+        console.log(`[NewOrderPage] 💰 Country pricing (${s.country}):`, {
+          service: selectedService,
+          provider: selectedProvider,
+          price_usd: priceUsd.toFixed(2),
+          usd_to_ngn_rate: usdToNgn,
+          final_price_ngn: priceNgn,
+          note: "Backend already applied (×1.20 + ₦2000)",
+        });
+
+        return {
+          code: s.country,
+          name:
+            countryNameByCode.get(String(s.country).toUpperCase()) || s.country,
+          priceUsd,
+          priceNgn,
+        };
+      });
 
     return countries;
-  }, [allServices, selectedService, selectedProvider, countryNameByCode]);
+  }, [
+    allServices,
+    selectedService,
+    selectedProvider,
+    countryNameByCode,
+    usdToNgn,
+    rubToUsd,
+  ]);
 
   // Filter services based on search
   // Lightweight fuzzy search scoring
@@ -281,10 +346,10 @@ export default function NewOrderPage() {
       return;
     }
 
-    if (balance < service.price) {
+    if (balance < Math.round(service.price * (usdToNgn || 0))) {
       setError(
-        `Insufficient balance. You need ₦${service.price.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
-          service.price - balance
+        `Insufficient balance. You need ₦${currentPriceNgn.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
+          currentPriceNgn - balance
         ).toLocaleString()} to your wallet.`
       );
       return;
@@ -298,6 +363,14 @@ export default function NewOrderPage() {
         serviceCode: selectedService,
         country: selectedCountry,
         provider: provider?.name,
+      });
+      console.log("[NewOrderPage] Creating order with pricing:", {
+        serviceCode: selectedService,
+        country: selectedCountry,
+        provider: provider?.name,
+        price_usd: currentPriceUsd,
+        price_ngn: currentPriceNgn,
+        rate_usd_to_ngn: usdToNgn,
       });
 
       if (response.ok) {
@@ -329,7 +402,15 @@ export default function NewOrderPage() {
     (s) => s.code === selectedService && s.country === selectedCountry
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
-  const insufficientBalance = currentService && balance < currentService.price;
+
+  // Backend already applied full markup: (base × 1.20) + 2000 NGN
+  // Frontend only converts USD → NGN
+  const currentPriceUsd =
+    (currentService as any)?.prices?.[selectedProvider] ??
+    currentService?.price ??
+    0;
+  const currentPriceNgn = Math.round(currentPriceUsd * (usdToNgn || 0));
+  const insufficientBalance = currentService && balance < currentPriceNgn;
 
   // Virtualized row renderer for services list
   const renderServiceRow = ({ index, style }: ListChildComponentProps) => {
@@ -385,7 +466,7 @@ export default function NewOrderPage() {
             <span className="font-medium truncate">{country.name}</span>
           </div>
           <span className="font-bold text-primary">
-            ₦{country.price.toLocaleString()}
+            ₦{(country.priceNgn || 0).toLocaleString()}
           </span>
         </button>
       </div>
@@ -470,67 +551,66 @@ export default function NewOrderPage() {
                     open={providerDialogOpen}
                     onOpenChange={setProviderDialogOpen}
                   >
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full h-14 justify-between text-left font-normal"
-                        disabled={creating}
-                      >
-                        {currentProvider ? (
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-lg flex items-center justify-center text-2xl font-bold ${
-                                currentProvider.name
-                                  .toLowerCase()
-                                  .includes("lion") ||
-                                currentProvider.name
-                                  .toLowerCase()
-                                  .includes("sms-man")
-                                  ? "bg-amber-100 dark:bg-amber-900"
-                                  : currentProvider.name
-                                      .toLowerCase()
-                                      .includes("panda") ||
-                                    currentProvider.name
-                                      .toLowerCase()
-                                      .includes("textverified")
-                                  ? "bg-green-100 dark:bg-green-900"
-                                  : "bg-primary/10"
-                              }`}
-                            >
-                              {currentProvider.name
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full h-14 justify-between text-left font-normal"
+                      disabled={creating}
+                      onClick={() => setProviderDialogOpen(true)}
+                    >
+                      {currentProvider ? (
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-lg flex items-center justify-center text-2xl font-bold ${
+                              currentProvider.name
                                 .toLowerCase()
                                 .includes("lion") ||
                               currentProvider.name
                                 .toLowerCase()
                                 .includes("sms-man")
-                                ? "🦁"
+                                ? "bg-amber-100 dark:bg-amber-900"
                                 : currentProvider.name
                                     .toLowerCase()
                                     .includes("panda") ||
                                   currentProvider.name
                                     .toLowerCase()
                                     .includes("textverified")
-                                ? "🐼"
-                                : currentProvider.displayName.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="font-semibold">
-                                {currentProvider.displayName}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {currentProvider.cover}
-                              </p>
-                            </div>
+                                ? "bg-green-100 dark:bg-green-900"
+                                : "bg-primary/10"
+                            }`}
+                          >
+                            {currentProvider.name
+                              .toLowerCase()
+                              .includes("lion") ||
+                            currentProvider.name
+                              .toLowerCase()
+                              .includes("sms-man")
+                              ? "🦁"
+                              : currentProvider.name
+                                  .toLowerCase()
+                                  .includes("panda") ||
+                                currentProvider.name
+                                  .toLowerCase()
+                                  .includes("textverified")
+                              ? "🐼"
+                              : currentProvider.displayName.charAt(0)}
                           </div>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            Select a provider
-                          </span>
-                        )}
-                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                      </Button>
-                    </DialogTrigger>
+                          <div>
+                            <p className="font-semibold">
+                              {currentProvider.displayName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {currentProvider.cover}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Select a provider
+                        </span>
+                      )}
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    </Button>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
                         <DialogTitle>Select Provider</DialogTitle>
@@ -744,29 +824,28 @@ export default function NewOrderPage() {
                   open={serviceDialogOpen}
                   onOpenChange={setServiceDialogOpen}
                 >
-                  <DialogTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full h-12 justify-between text-left"
-                      disabled={creating || !selectedProvider}
-                    >
-                      {selectedService ? (
-                        <span className="truncate">
-                          {allServices.find((s) => s.code === selectedService)
-                            ?.ui?.displayName ||
-                            allServices.find((s) => s.code === selectedService)
-                              ?.name ||
-                            "Selected service"}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Select a service
-                        </span>
-                      )}
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </Button>
-                  </DialogTrigger>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full h-12 justify-between text-left"
+                    disabled={creating || !selectedProvider}
+                    onClick={() => setServiceDialogOpen(true)}
+                  >
+                    {selectedService ? (
+                      <span className="truncate">
+                        {allServices.find((s) => s.code === selectedService)?.ui
+                          ?.displayName ||
+                          allServices.find((s) => s.code === selectedService)
+                            ?.name ||
+                          "Selected service"}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Select a service
+                      </span>
+                    )}
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  </Button>
                   <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                       <DialogTitle>Select Service</DialogTitle>
@@ -827,27 +906,26 @@ export default function NewOrderPage() {
                   open={countryDialogOpen}
                   onOpenChange={setCountryDialogOpen}
                 >
-                  <DialogTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full h-12 justify-between text-left"
-                      disabled={creating || !selectedService}
-                    >
-                      {selectedCountry ? (
-                        <span className="truncate">
-                          {availableCountries.find(
-                            (c) => c.code === selectedCountry
-                          )?.name || "Selected country"}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Select a country
-                        </span>
-                      )}
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </Button>
-                  </DialogTrigger>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full h-12 justify-between text-left"
+                    disabled={creating || !selectedService}
+                    onClick={() => setCountryDialogOpen(true)}
+                  >
+                    {selectedCountry ? (
+                      <span className="truncate">
+                        {availableCountries.find(
+                          (c) => c.code === selectedCountry
+                        )?.name || "Selected country"}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Select a country
+                      </span>
+                    )}
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  </Button>
                   <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                       <DialogTitle>Select Country</DialogTitle>
@@ -995,7 +1073,7 @@ export default function NewOrderPage() {
                           insufficientBalance ? "text-red-600" : "text-primary"
                         }`}
                       >
-                        ₦{currentService.price.toLocaleString()}
+                        ₦{currentPriceNgn.toLocaleString()}
                       </span>
                     </div>
                     {insufficientBalance && (
@@ -1004,8 +1082,7 @@ export default function NewOrderPage() {
                           ⚠️ Insufficient balance
                         </p>
                         <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                          Need ₦
-                          {(currentService.price - balance).toLocaleString()}{" "}
+                          Need ₦{(currentPriceNgn - balance).toLocaleString()}{" "}
                           more
                         </p>
                       </div>

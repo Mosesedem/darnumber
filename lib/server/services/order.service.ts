@@ -356,22 +356,19 @@ export class SMSManService {
               const application = applicationsMap.get(applicationId);
               if (!application) return;
 
-              // Pricing calculation: RUB to NGN (800:1) + 10% profit + 2000 NGN flat fee
-              const basePriceNGN = Math.ceil(
-                parseFloat(serviceData.cost) * 800
-              );
-              const profitMargin = Math.ceil(basePriceNGN * 0.1); // 10%
-              const finalPrice = basePriceNGN + profitMargin + 2000; // + 2000 NGN
+              // SMS-Man prices are in Russian Rubles (RUB)
+              // Return raw RUB price - conversion RUB→USD→NGN happens in frontend
+              const priceRUB = parseFloat(serviceData.cost);
 
               services.push({
                 code: application.code || `app_${applicationId}`,
                 name: application.name,
                 country: country.code,
                 countryName: country.title,
-                price: finalPrice,
+                price: priceRUB, // Raw RUB price
                 count: serviceData.count,
-                basePrice: basePriceNGN,
-                profitMargin,
+                providerId: "sms-man",
+                currency: "RUB",
               });
             }
           );
@@ -489,49 +486,284 @@ export class SMSManService {
 
 // TextVerified provider adapter - USA only
 export class TextVerifiedService {
-  private apiUrl = "https://textverified.com/api"; // Correct base URL
+  private apiUrl = "https://www.textverified.com/api/pub/v2";
   private apiKey = process.env.TEXTVERIFIED_API_KEY || "";
+  private apiUsername = process.env.TEXTVERIFIED_USERNAME || "";
+  private bearerToken: string | null = null;
+  private tokenExpiry: number = 0;
 
-  async getAvailableServices() {
-    console.log("[TextVerifiedService] Fetching USA-only services...");
+  // Generate bearer token using X-API-KEY and X-API-USERNAME
+  private async getBearerToken(): Promise<string> {
+    // Check if we have a valid cached token
+    if (this.bearerToken && Date.now() < this.tokenExpiry) {
+      console.log("[TextVerified] Using cached bearer token");
+      return this.bearerToken;
+    }
 
-    // For now, return a simple set of USA services with standard pricing
-    // TextVerified only supports USA, so we'll provide common services
-    const usaServices = [
-      { name: "WhatsApp", code: "wa" },
-      { name: "Telegram", code: "tg" },
-      { name: "Instagram", code: "ig" },
-      { name: "Facebook", code: "fb" },
-      { name: "Twitter", code: "tw" },
-      { name: "Google", code: "go" },
-      { name: "Apple", code: "ap" },
-      { name: "Microsoft", code: "ms" },
-      { name: "Discord", code: "ds" },
-      { name: "Uber", code: "ub" },
-    ];
+    console.log("[TextVerified] Generating new bearer token...");
 
-    const services = usaServices.map((service) => {
-      // Base price $2 USD = 3000 NGN + 10% profit (300) + 2000 NGN flat fee = 5300 NGN
-      const basePriceNGN = 3000; // $2 USD at 1500 NGN per USD
-      const profitMargin = Math.ceil(basePriceNGN * 0.1); // 10%
-      const finalPrice = basePriceNGN + profitMargin + 2000; // + 2000 NGN
+    if (!this.apiKey || !this.apiUsername) {
+      throw new Error("TextVerified API key or username not configured");
+    }
 
-      return {
-        code: service.code,
-        name: service.name,
-        country: "US",
-        countryName: "United States",
-        price: finalPrice,
-        count: 100, // Assume availability
-        basePrice: basePriceNGN,
-        profitMargin,
-      };
+    const authUrl = `${this.apiUrl}/auth`;
+    const response = await fetch(authUrl, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": this.apiKey,
+        "X-API-USERNAME": this.apiUsername,
+        "Content-Type": "application/json",
+      },
     });
 
-    console.log(
-      `[TextVerifiedService] Returning ${services.length} USA services`
-    );
-    return services;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to generate bearer token: ${response.status} - ${errorText}`
+      );
+    }
+
+    const data = await response.json();
+    this.bearerToken = data.token || data.bearerToken || data.access_token;
+
+    if (!this.bearerToken) {
+      throw new Error("Bearer token not found in response");
+    }
+
+    // Cache token for 50 minutes (assuming 60min expiry)
+    this.tokenExpiry = Date.now() + 50 * 60 * 1000;
+    console.log("[TextVerified] ✓ Bearer token generated successfully");
+
+    return this.bearerToken;
+  }
+
+  async getAvailableServices() {
+    console.log("\n╔═══════════════════════════════════════════════╗");
+    console.log("║ TextVerified - Fetching ALL Available Services");
+    console.log("╚═══════════════════════════════════════════════╝");
+
+    try {
+      // Generate bearer token
+      const bearerToken = await this.getBearerToken();
+
+      // Fetch services list - using correct endpoint
+      const servicesParams = new URLSearchParams({
+        numberType: "mobile",
+        reservationType: "verification",
+      }).toString();
+      const servicesUrl = `${this.apiUrl}/services?${servicesParams}`;
+      console.log(`[TextVerified] Fetching services from: ${servicesUrl}`);
+
+      const servicesResponse = await fetch(servicesUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log(
+        `[TextVerified] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`
+      );
+
+      if (!servicesResponse.ok) {
+        const errorText = await servicesResponse.text();
+        console.error(`[TextVerified] API Error: ${servicesResponse.status}`);
+        console.error(`[TextVerified] Error body:`, errorText);
+        throw new Error(
+          `TextVerified API error: ${servicesResponse.status} - ${errorText}`
+        );
+      }
+
+      const servicesData = await servicesResponse.json();
+      // Try to extract list from multiple possible shapes
+      const extractServices = (data: any) => {
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data?.data)) return data.data;
+        if (Array.isArray(data?.items)) return data.items;
+        if (Array.isArray(data?.data?.items)) return data.data.items;
+        return [];
+      };
+      const servicesList = extractServices(servicesData);
+
+      console.log(
+        `[TextVerified] Total services found: ${servicesList.length}`
+      );
+
+      if (servicesList.length === 0) {
+        console.warn(`[TextVerified] ⚠️  No services returned from API`);
+        console.warn(
+          `[TextVerified] Raw services payload keys: ${Object.keys(
+            servicesData || {}
+          ).join(", ")}`
+        );
+        console.warn(
+          `[TextVerified] Raw:`,
+          JSON.stringify(servicesData).slice(0, 1000)
+        );
+        return [];
+      }
+
+      // Fetch pricing for each service with rate limiting
+      console.log(`[TextVerified] Fetching pricing with rate limiting...`);
+      const pricingUrl = `${this.apiUrl}/pricing/verifications`;
+      
+      // Rate limiting configuration
+      const BATCH_SIZE = 10; // Process 10 services at a time
+      const DELAY_BETWEEN_BATCHES = 2000; // 2 second delay between batches
+      const DELAY_BETWEEN_REQUESTS = 100; // 100ms delay between individual requests
+      const MAX_SERVICES = 500; // Limit to first 500 services for reasonable load time
+
+      // Limit services to process
+      const limitedServicesList = servicesList.slice(0, MAX_SERVICES);
+      console.log(`[TextVerified] Processing ${limitedServicesList.length} of ${servicesList.length} services (limited for performance)`);
+
+      // Helper: delay function
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      // Helper: robust pricing fetch trying id-based first, then fallbacks
+      const fetchPricing = async (
+        svc: any,
+        idx: number,
+        retries = 2
+      ): Promise<null | { price: number; raw?: any }> => {
+        const svcName = svc.serviceName || svc.name || svc.title || "";
+        const svcId = svc.id || svc.serviceId || svc.targetId || null;
+        const capability = svc.capability || "sms";
+
+        const common = {
+          areaCode: false,
+          carrier: false,
+          numberType: "mobile",
+          capability,
+        } as any;
+
+        const payloads: any[] = [];
+        if (svcId) payloads.push({ ...common, serviceId: svcId });
+        if (svcName) payloads.push({ ...common, serviceName: svcName });
+
+        let lastStatus = 0;
+        let lastBody: string | undefined;
+        
+        for (const body of payloads) {
+          try {
+            const res = await fetch(pricingUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${bearerToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(body),
+            });
+            lastStatus = res.status;
+            
+            // Handle rate limiting with retry
+            if (res.status === 429 && retries > 0) {
+              const retryAfter = parseInt(res.headers.get('Retry-After') || '5');
+              await delay(retryAfter * 1000);
+              return fetchPricing(svc, idx, retries - 1);
+            }
+            
+            if (!res.ok) {
+              lastBody = await res.text().catch(() => undefined);
+              continue;
+            }
+            
+            const data = await res.json().catch(() => ({}));
+            const priceCandidate =
+              (typeof data.price === "number" && data.price) ||
+              (typeof data.price === "string" && parseFloat(data.price)) ||
+              (Array.isArray(data?.prices) &&
+                data.prices.length > 0 &&
+                parseFloat(data.prices[0]?.price)) ||
+              0;
+            const price = Number.isFinite(priceCandidate)
+              ? Number(priceCandidate)
+              : 0;
+            if (!price || price <= 0) {
+              continue;
+            }
+            
+            if ((idx + 1) % 50 === 0) {
+              console.log(`[TextVerified] Processed ${idx + 1}/${limitedServicesList.length} services...`);
+            }
+            return { price, raw: data };
+          } catch (e) {
+            // Retry on error
+            if (retries > 0) {
+              await delay(1000);
+              return fetchPricing(svc, idx, retries - 1);
+            }
+          }
+        }
+        return null;
+      };
+
+      // Process services in batches with rate limiting
+      const servicesWithPricing: any[] = [];
+      const totalBatches = Math.ceil(limitedServicesList.length / BATCH_SIZE);
+      
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const start = batchIndex * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, limitedServicesList.length);
+        const batch = limitedServicesList.slice(start, end);
+        
+        console.log(`[TextVerified] Processing batch ${batchIndex + 1}/${totalBatches} (services ${start + 1}-${end})...`);
+        
+        // Process batch sequentially with small delays
+        for (let i = 0; i < batch.length; i++) {
+          const service = batch[i];
+          const globalIndex = start + i;
+          const pricing = await fetchPricing(service, globalIndex);
+          
+          // Only include services with valid pricing
+          if (pricing && pricing.price > 0) {
+            servicesWithPricing.push({
+              code: service.serviceName || service.name || service.id,
+              name: service.serviceName || service.name || `${service.id}`,
+              country: "US",
+              countryName: "United States",
+              price: pricing.price,
+              count: 100,
+              providerId: "textverified",
+              currency: "USD",
+              capability: service.capability || "sms",
+            });
+          }
+          
+          // Small delay between requests
+          if (i < batch.length - 1) {
+            await delay(DELAY_BETWEEN_REQUESTS);
+          }
+        }
+        
+        // Delay between batches (except for the last batch)
+        if (batchIndex < totalBatches - 1) {
+          await delay(DELAY_BETWEEN_BATCHES);
+        }
+      }
+
+      const services = servicesWithPricing;
+
+      console.log(
+        `\n[TextVerified] ✅ Successfully processed ${services.length} services with pricing`
+      );
+      console.log("╚═══════════════════════════════════════════════╝\n");
+
+      return services;
+    } catch (err) {
+      console.error("\n[TextVerified] ❌ FATAL ERROR");
+      console.error(
+        "[TextVerified] Error:",
+        err instanceof Error ? err.message : err
+      );
+      if (err instanceof Error) {
+        console.error("[TextVerified] Stack:", err.stack);
+      }
+      console.log("╚═══════════════════════════════════════════════╝\n");
+
+      return [];
+    }
   }
 
   async requestNumber(serviceCode: string, country: string) {
