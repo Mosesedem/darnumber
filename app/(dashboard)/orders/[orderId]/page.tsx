@@ -99,7 +99,9 @@ export default function OrderDetailPage() {
     }
   };
 
-  const canCancel = ["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(order.status);
+  const canCancel = ["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(
+    order.status
+  );
 
   const expiresAtMs = useMemo(() => {
     return order?.expiresAt ? new Date(order.expiresAt).getTime() : null;
@@ -149,7 +151,9 @@ export default function OrderDetailPage() {
         {/* SMS Code */}
         {order.smsCode && (
           <div className="p-4 bg-green-50 rounded-lg">
-            <p className="text-sm text-muted-foreground mb-1">SMS Verification Code</p>
+            <p className="text-sm text-muted-foreground mb-1">
+              SMS Verification Code
+            </p>
             <p className="text-3xl font-bold text-green-600">{order.smsCode}</p>
           </div>
         )}
@@ -170,22 +174,30 @@ export default function OrderDetailPage() {
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Price</span>
-            <span className="font-medium">₦{Number(order.finalPrice).toLocaleString()}</span>
+            <span className="font-medium">
+              ₦{Number(order.finalPrice).toLocaleString()}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Created</span>
-            <span className="font-medium">{new Date(order.createdAt).toLocaleString()}</span>
+            <span className="font-medium">
+              {new Date(order.createdAt).toLocaleString()}
+            </span>
           </div>
           {order.completedAt && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">Completed</span>
-              <span className="font-medium">{new Date(order.completedAt).toLocaleString()}</span>
+              <span className="font-medium">
+                {new Date(order.completedAt).toLocaleString()}
+              </span>
             </div>
           )}
           {order.expiresAt && (
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Expires</span>
-              <span className="font-medium">{new Date(order.expiresAt).toLocaleString()}</span>
+              <span className="font-medium">
+                {new Date(order.expiresAt).toLocaleString()}
+              </span>
             </div>
           )}
         </div>
@@ -196,7 +208,8 @@ export default function OrderDetailPage() {
             <div className="flex flex-col">
               <span className="font-medium">Time remaining</span>
               <span className="text-sm text-muted-foreground">
-                This number will auto-cancel and refund in {formatDuration(remainingMs)}.
+                This number will auto-cancel and refund in{" "}
+                {formatDuration(remainingMs)}.
               </span>
             </div>
           </Alert>
@@ -204,7 +217,8 @@ export default function OrderDetailPage() {
 
         {order.status === "WAITING_FOR_SMS" && (
           <Alert className="mt-4">
-            Waiting for SMS code. This page will automatically update when the code is received.
+            Waiting for SMS code. This page will automatically update when the
+            code is received.
           </Alert>
         )}
 
@@ -234,3 +248,4 @@ export default function OrderDetailPage() {
       </Card>
     </div>
   );
+}
