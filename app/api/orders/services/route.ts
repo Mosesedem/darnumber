@@ -160,7 +160,8 @@ export async function GET(req: NextRequest) {
     console.log("[Processing] TextVerified services (USD) with full markup...");
     tvServices.forEach((service: any, idx: number) => {
       const key = `${service.code}-${service.country}`;
-      const baseUSD = service.price;
+      // TextVerified services have price: 0 initially, will be fetched on-demand
+      const baseUSD = service.price || 0;
       const flatFeeUSD = FLAT_FEE_NGN / usdToNgnRate;
       const priceUSD = Number(
         (baseUSD * (1 + MARKUP_PERCENTAGE) + flatFeeUSD).toFixed(2)
@@ -181,6 +182,7 @@ export async function GET(req: NextRequest) {
           prices: { [PROVIDERS.PANDA.id]: priceUSD },
           currency: "USD",
           providerId: "textverified",
+          capability: service.capability || "sms",
           ui: {
             logo: "📱",
             color: "bg-gray-200",
@@ -198,6 +200,8 @@ export async function GET(req: NextRequest) {
         const existing = servicesMap.get(key);
         existing.prices = existing.prices || {};
         existing.prices[PROVIDERS.PANDA.id] = priceUSD;
+        existing.capability =
+          service.capability || existing.capability || "sms";
         if (!existing.providers.find((p: any) => p.id === PROVIDERS.PANDA.id)) {
           existing.providers.push({
             id: PROVIDERS.PANDA.id,

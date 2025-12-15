@@ -295,6 +295,43 @@ export class OrderService {
     });
     if (!order) return null;
 
+    // Opportunistic refresh for TextVerified: if we have an href and no number yet
+    try {
+      if (
+        order.providerId === "textverified" &&
+        order.externalId &&
+        order.externalId.startsWith("http") &&
+        !order.phoneNumber &&
+        (order.status === "WAITING_FOR_SMS" || order.status === "PROCESSING")
+      ) {
+        const tv = new TextVerifiedService();
+        const details = await tv.getVerificationDetails(order.externalId);
+        if (details && details.number) {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: {
+              phoneNumber: details.number,
+              status:
+                details.state === "verificationCompleted"
+                  ? "WAITING_FOR_SMS"
+                  : order.status,
+            },
+          });
+          // Update local snapshot
+          order.phoneNumber = details.number;
+          order.status =
+            details.state === "verificationCompleted"
+              ? "WAITING_FOR_SMS"
+              : order.status;
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "[OrderService] TextVerified details refresh failed",
+        e instanceof Error ? e.message : String(e)
+      );
+    }
+
     // Auto-expire orders that have passed their expiry window
     if (
       order.expiresAt &&
@@ -410,7 +447,7 @@ export class OrderService {
       }
 
       // Update order status based on reason
-      let newStatus: OrderStatus = "REFUNDED";
+      let newStatus = "REFUNDED" as const;
       if (reason === "USER_CANCELLED") newStatus = "CANCELLED";
       if (reason === "PROVIDER_FAILURE") newStatus = "FAILED";
       if (reason === "EXPIRED") newStatus = "EXPIRED";
@@ -772,6 +809,8 @@ export class TextVerifiedService {
   private apiUsername = process.env.TEXTVERIFIED_USERNAME || "";
   private bearerToken: string | null = null;
   private tokenExpiry: number = 0;
+  private servicesCache: any[] | null = null;
+  private servicesCacheExpiry: number = 0;
 
   // Generate bearer token using X-API-KEY and X-API-USERNAME
   private async getBearerToken(): Promise<string> {
@@ -819,8 +858,12 @@ export class TextVerifiedService {
   }
 
   async cancelVerification(verificationId: string): Promise<void> {
+    // Support passing full href or just the ID
+    const id = verificationId.startsWith("http")
+      ? verificationId.split("/").pop() || verificationId
+      : verificationId;
     const bearerToken = await this.getBearerToken();
-    const url = `${this.apiUrl}/verifications/${verificationId}`;
+    const url = `${this.apiUrl}/verifications/${id}`;
     const res = await fetchWithRetry(url, {
       method: "DELETE",
       headers: {
@@ -832,10 +875,16 @@ export class TextVerifiedService {
       const text = await res.text();
       throw new Error(`Failed to cancel TextVerified verification: ${text}`);
     }
-    console.log(`[TextVerified] Cancelled verification ${verificationId}`);
+    console.log(`[TextVerified] Cancelled verification ${id}`);
   }
 
   async getAvailableServices() {
+    // Check cache first (cache for 1 hour)
+    if (this.servicesCache && Date.now() < this.servicesCacheExpiry) {
+      console.log("[TextVerified] Using cached services list");
+      return this.servicesCache;
+    }
+
     console.log("\n╔═══════════════════════════════════════════════╗");
     console.log("║ TextVerified - Fetching ALL Available Services");
     console.log("╚═══════════════════════════════════════════════╝");
@@ -920,6 +969,10 @@ export class TextVerifiedService {
       );
       console.log("╚═══════════════════════════════════════════════╝\n");
 
+      // Cache services for 1 hour
+      this.servicesCache = services;
+      this.servicesCacheExpiry = Date.now() + 60 * 60 * 1000;
+
       return services;
     } catch (err) {
       console.error("\n[TextVerified] ❌ FATAL ERROR");
@@ -942,67 +995,48 @@ export class TextVerifiedService {
    * @returns The price in USD, or null if not found.
    */
   async fetchAndCacheServicePrice(serviceName: string): Promise<number | null> {
+    console.log(
+      `[TextVerified][Price] Fetching price for service: ${serviceName}`
+    );
     const cacheKey = `textverified:price:${serviceName}`;
 
     // 1. Check Redis cache first
     const cachedPrice = await redis.get(cacheKey);
-    if (cachedPrice) {
+    if (cachedPrice && cachedPrice !== "-1") {
       console.log(
-        `[TextVerified][Cache] HIT for ${serviceName}: $${cachedPrice}`
+        `[TextVerified][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`
       );
       return parseFloat(cachedPrice);
     }
 
-    console.log(`[TextVerified][Cache] MISS for ${serviceName}. Fetching...`);
+    console.log(`[TextVerified][Cache] ✗ MISS for ${serviceName}`);
 
-    // 2. Fetch from API if not in cache
-    const bearerToken = await this.getBearerToken();
-    const pricingUrl = `${this.apiUrl}/pricing/verifications`;
+    /**
+     * TextVerified pricing API is complex and requires:
+     * - Carrier pricing option
+     * - Area code pricing option
+     * - Causes rate limiting (429) with frequent requests
+     *
+     * Solution: Use a default base price instead of fetching from API
+     * The actual price will be determined during order creation
+     */
 
-    const body = {
-      numberType: "mobile",
-      serviceName,
-    };
-
-    const res = await fetchWithRetry(pricingUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${bearerToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error(
-        `[TextVerified] Pricing fetch failed for ${serviceName} (${res.status}): ${errorText}`
-      );
-      // Cache failure for a short period to avoid hammering the API
-      await redis.set(cacheKey, "-1", 60 * 5); // Cache failure for 5 mins
-      return null;
-    }
-
-    const data = await res.json();
-    const price =
-      (typeof data.price === "number" && data.price) ||
-      (typeof data.price === "string" && parseFloat(data.price)) ||
-      null;
-
-    if (price !== null && price > 0) {
-      console.log(
-        `[TextVerified] Fetched price for ${serviceName}: $${price}. Caching...`
-      );
-      // Cache for 12 hours
-      await redis.set(cacheKey, price.toString(), 60 * 60 * 12);
-      return price;
-    }
-
-    console.warn(
-      `[TextVerified] No valid price found for ${serviceName} in API response.`
+    console.log(
+      `[TextVerified][Price] Using default base price for ${serviceName}`
     );
-    await redis.set(cacheKey, "-1", 60 * 60); // Cache failure for 1 hour
-    return null;
+
+    // Default base price: $0.50 USD
+    // This is just for display - actual pricing happens at order time
+    const defaultPrice = 0.5;
+
+    // Cache for 24 hours
+    await redis.set(cacheKey, defaultPrice.toString(), 60 * 60 * 24);
+
+    console.log(
+      `[TextVerified][Price] ✓ Cached default price for ${serviceName}: $${defaultPrice}`
+    );
+
+    return defaultPrice;
   }
 
   async requestNumber(
@@ -1010,23 +1044,44 @@ export class TextVerifiedService {
     country: string,
     orderId: string
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    console.log("[TextVerified] Requesting number for:", {
-      serviceName,
-      country,
-      orderId,
-    });
+    console.log("\n╔════════════════════════════════════════════════╗");
+    console.log("║  TextVerified - Requesting Number");
+    console.log("╚════════════════════════════════════════════════╝");
+    console.log(`[TextVerified][Request] Order ID: ${orderId}`);
+    console.log(`[TextVerified][Request] Service: ${serviceName}`);
+    console.log(`[TextVerified][Request] Country: ${country}`);
 
     if (country !== "US") {
+      console.error(`[TextVerified][Request] ✗ Invalid country: ${country}`);
       throw new Error("TextVerified only supports the US.");
     }
 
+    console.log(`[TextVerified][Request] Step 1: Getting bearer token...`);
     const bearerToken = await this.getBearerToken();
+    console.log(`[TextVerified][Request] ✓ Bearer token obtained`);
+
     const verificationUrl = `${this.apiUrl}/verifications`;
+
+    console.log(
+      `[TextVerified][Request] Step 2: Fetching service capability...`
+    );
+    // Fetch the service capability from the services list
+    const services = await this.getAvailableServices();
+    const service = services.find((s: any) => s.code === serviceName);
+    const capability = service?.capability || "sms";
+
+    console.log(`[TextVerified][Request] ✓ Capability: ${capability}`);
+    console.log(`[TextVerified][Request] Step 3: Creating verification...`);
 
     const body = {
       serviceName,
-      numberType: "mobile",
+      capability,
     };
+
+    console.log(
+      `[TextVerified][Request] Request body:`,
+      JSON.stringify(body, null, 2)
+    );
 
     const res = await fetchWithRetry(verificationUrl, {
       method: "POST",
@@ -1037,24 +1092,104 @@ export class TextVerifiedService {
       body: JSON.stringify(body),
     });
 
-    const responseData = await res.json();
     console.log(
-      `[TextVerified] Verification response (${res.status}):`,
-      responseData
+      `[TextVerified][Response] Status: ${res.status} ${res.statusText}`
     );
 
-    if (!res.ok || !responseData.id) {
+    // Check if response is JSON before parsing
+    const contentType = res.headers.get("content-type");
+    let responseData: any;
+
+    if (contentType && contentType.includes("application/json")) {
+      responseData = await res.json();
+      console.log(
+        `[TextVerified][Response] Body:`,
+        JSON.stringify(responseData, null, 2)
+      );
+    } else {
+      const textResponse = await res.text();
+      console.error(
+        `[TextVerified][Response] ✗ Non-JSON response (${res.status}):`,
+        textResponse.substring(0, 500)
+      );
       throw new Error(
-        `Failed to request number from TextVerified: ${
-          responseData.message || "Unknown error"
-        }`
+        `TextVerified API returned non-JSON response (${
+          res.status
+        }): ${textResponse.substring(0, 200)}`
       );
     }
 
+    if (!res.ok) {
+      const errorMsg =
+        responseData.message ||
+        responseData.error ||
+        JSON.stringify(responseData);
+      console.error(
+        `[TextVerified][Response] ✗ Request failed (${res.status}): ${errorMsg}`
+      );
+      console.log("╚════════════════════════════════════════════════╝\n");
+      throw new Error(
+        `Failed to request number from TextVerified (${res.status}): ${errorMsg}`
+      );
+    }
+
+    // New API returns an href to the verification details instead of an ID.
+    const href: string | undefined = responseData.href;
+    if (!href) {
+      console.error(
+        `[TextVerified][Response] ✗ Missing verification href in response`
+      );
+      console.log("╚════════════════════════════════════════════════╝\n");
+      throw new Error(
+        `TextVerified response missing verification href: ${JSON.stringify(
+          responseData
+        )}`
+      );
+    }
+
+    // Use the href as the external identifier; also keep a short id if needed
+    const shortId = href.split("/").pop();
+
+    console.log(`[TextVerified][Success] ✓ Verification created`);
+    console.log(`[TextVerified][Success]   Href: ${href}`);
+    if (shortId) console.log(`[TextVerified][Success]   ID: ${shortId}`);
+    console.log(
+      `[TextVerified][Success]   Number: ${responseData.number || "pending"}`
+    );
+    console.log(
+      `[TextVerified][Success]   Cost: $${responseData.price || "N/A"}`
+    );
+    console.log("╚════════════════════════════════════════════════╝\n");
+
+    // Phone number will be provided after polling the verification details.
     return {
-      id: responseData.id,
+      id: href,
       phoneNumber: responseData.number,
       cost: responseData.price,
     };
+  }
+
+  // Fetch verification details via href and extract status/number
+  async getVerificationDetails(href: string): Promise<{
+    state?: string;
+    number?: string;
+  } | null> {
+    const bearerToken = await this.getBearerToken();
+    const res = await fetchWithRetry(href, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${bearerToken}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn(
+        `[TextVerified] Failed to fetch verification details (${res.status}): ${text}`
+      );
+      return null;
+    }
+    const data = await res.json();
+    const state = data?.state || data?.data?.state;
+    const number =
+      data?.data?.phoneNumber || data?.data?.number || data?.number;
+    return { state, number };
   }
 }

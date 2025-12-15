@@ -210,7 +210,7 @@ class ApiClient {
 
   async getTextVerifiedPrice(serviceName: string) {
     const response = await this.client.get(
-      `/providers/textverified/price?service=${serviceName}`
+      `/providers/textverified/price?serviceName=${serviceName}`
     );
     return response.data;
   }
