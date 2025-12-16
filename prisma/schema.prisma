@@ -56,13 +56,14 @@ model User {
   deletedAt   DateTime? @map("deleted_at")
 
   // Relations
-  sessions     Session[]
-  transactions Transaction[]
-  orders       Order[]
-  apiKeys      ApiKey[]
-  activityLogs ActivityLog[]
-  referrals    Referral[]    @relation("ReferredUsers")
-  referrer     Referral?     @relation("Referrer")
+  sessions            Session[]
+  transactions        Transaction[]
+  orders              Order[]
+  apiKeys             ApiKey[]
+  activityLogs        ActivityLog[]
+  referrals           Referral[]           @relation("ReferredUsers")
+  referrer            Referral?            @relation("Referrer")
+  passwordResetTokens PasswordResetToken[]
 
   @@index([email])
   @@index([phone])
@@ -124,6 +125,22 @@ model ApiKey {
   @@index([userId])
   @@index([key])
   @@map("api_keys")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ============================================

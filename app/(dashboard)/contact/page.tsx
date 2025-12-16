@@ -81,10 +81,20 @@ export default function ContactPage() {
     setLoading(true);
 
     try {
-      // Simulate API call - in production, this would send to your backend
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
 
-      // For now, we'll just show success since there's no contact API endpoint
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to send message");
+      }
+
       toast.success(
         "Message sent!",
         "We'll get back to you as soon as possible."
@@ -104,7 +114,7 @@ export default function ContactPage() {
       console.error("Failed to send message:", error);
       toast.error(
         "Failed to send message",
-        "Please try again or contact us directly."
+        error.message || "Please try again or contact us directly."
       );
     } finally {
       setLoading(false);
