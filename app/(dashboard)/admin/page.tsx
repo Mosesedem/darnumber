@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,13 @@ export default function AdminDashboard() {
     } catch (error: any) {
       console.error("Failed to fetch dashboard:", error);
       if (error.response?.status === 403) {
+        toast.api.unauthorized();
         router.push("/dashboard");
+      } else if (error.response?.status === 401) {
+        toast.auth.sessionExpired();
+        router.push("/login");
+      } else {
+        toast.error("Failed to load dashboard", "Please try again later.");
       }
     } finally {
       setLoading(false);

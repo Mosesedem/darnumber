@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -45,17 +45,14 @@ function ResetPasswordForm() {
 
     try {
       await api.resetPassword(token, password);
-      toast.success("Password reset successfully. Please sign in.");
+      toast.auth.passwordResetSuccess();
       router.push("/login?reset=success");
     } catch (err: any) {
-      setError(
+      const errorMsg =
         err.response?.data?.error ||
-          "Failed to reset password. The link may have expired."
-      );
-      toast.error(
-        err.response?.data?.error ||
-          "Failed to reset password. The link may have expired."
-      );
+        "Failed to reset password. The link may have expired.";
+      setError(errorMsg);
+      toast.error("Reset failed", errorMsg);
     } finally {
       setLoading(false);
     }

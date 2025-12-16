@@ -165,10 +165,13 @@ export default function OrderDetailPage() {
     setShowCancelDialog(false);
     try {
       await api.cancelOrder(orderId);
+      toast.order.cancelled(order?.orderNumber);
       fetchOrder();
     } catch (err) {
       const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || "Failed to cancel order");
+      const errorMsg = error.response?.data?.error || "Failed to cancel order";
+      toast.error("Cancel failed", errorMsg);
+      setError(errorMsg);
     } finally {
       setCancelling(false);
     }

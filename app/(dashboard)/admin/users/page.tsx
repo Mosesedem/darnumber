@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,8 +36,13 @@ export default function AdminUsersPage() {
       const response = await api.getAdminUsers(page, 20, searchQuery);
       setUsers(response.data);
       setPagination(response.pagination);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch users:", error);
+      if (error.response?.status === 403) {
+        toast.api.unauthorized();
+      } else {
+        toast.error("Failed to load users", "Please try again later.");
+      }
     } finally {
       setLoading(false);
     }
@@ -53,22 +59,41 @@ export default function AdminUsersPage() {
           : -parseFloat(balanceAmount),
         `Manual ${balanceType} by admin`
       );
+      toast.success(
+        "Balance adjusted",
+        `Successfully ${
+          balanceType === "add" ? "added" : "deducted"
+        } ₦${parseFloat(balanceAmount).toLocaleString()}`
+      );
       setBalanceAmount("");
       setSelectedUser(null);
       fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to adjust balance:", error);
+      toast.error(
+        "Balance adjustment failed",
+        error.response?.data?.error || "Please try again."
+      );
     }
   };
 
   const handleToggleStatus = async (userId: string, currentStatus: string) => {
+    const newStatus = currentStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
     try {
       await api.updateUser(userId, {
-        accountStatus: currentStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
+        accountStatus: newStatus,
       });
+      toast.success(
+        "Status updated",
+        `User has been ${newStatus === "ACTIVE" ? "activated" : "suspended"}.`
+      );
       fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to update user status:", error);
+      toast.error(
+        "Status update failed",
+        error.response?.data?.error || "Please try again."
+      );
     }
   };
 

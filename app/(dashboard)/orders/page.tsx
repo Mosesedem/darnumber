@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -72,8 +73,14 @@ export default function OrdersPage() {
       });
       setOrders(response.data);
       setPagination(response.pagination);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch orders:", error);
+      if (error.response?.status === 401) {
+        toast.auth.sessionExpired();
+        router.push("/login");
+      } else {
+        toast.error("Failed to load orders", "Please try again later.");
+      }
     } finally {
       setLoading(false);
     }

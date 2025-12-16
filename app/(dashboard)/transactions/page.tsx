@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,8 +101,14 @@ function TransactionsContent() {
         ...prev,
         ...response.pagination,
       }));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch transactions:", error);
+      if (error.response?.status === 401) {
+        toast.auth.sessionExpired();
+        router.push("/login");
+      } else {
+        toast.error("Failed to load transactions", "Please try again later.");
+      }
     } finally {
       setLoading(false);
     }

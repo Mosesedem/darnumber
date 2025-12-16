@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useDeferredValue } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -423,6 +424,7 @@ export default function NewOrderPage() {
     setError("");
 
     if (!selectedService || !selectedCountry || !selectedProvider) {
+      toast.api.validationError("Please select service, country, and provider");
       setError("Please select service, country, and provider");
       return;
     }
@@ -435,11 +437,13 @@ export default function NewOrderPage() {
     );
 
     if (!service) {
+      toast.error("Service not found", "Please try selecting again.");
       setError("Service not found");
       return;
     }
 
     if (balance < Math.round(service.price * (usdToNgn || 0))) {
+      toast.payment.insufficientBalance();
       setError(
         `Insufficient balance. You need ₦${currentPriceNgn.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
           currentPriceNgn - balance
@@ -477,8 +481,10 @@ export default function NewOrderPage() {
       });
 
       if (response.ok) {
+        toast.order.created(response.data.orderNumber);
         router.push(`/orders/${response.data.orderId}`);
       } else {
+        toast.order.failed(response.error || "Failed to create order");
         setError(response.error || "Failed to create order");
       }
     } catch (err: unknown) {
@@ -487,6 +493,7 @@ export default function NewOrderPage() {
         const e = err as { response?: { data?: { error?: string } } };
         message = e.response?.data?.error || message;
       }
+      toast.order.failed(message);
       setError(message);
     } finally {
       setCreating(false);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -111,9 +111,9 @@ export default function SignupPage() {
       if (!res.ok || !data?.ok) {
         const msg = data?.error?.message || "Registration failed";
         setError(msg);
-        toast.error(msg);
+        toast.auth.signupError(msg);
       } else {
-        toast.success("Account created successfully. Signing you in...");
+        toast.auth.signupSuccess();
         // Auto-login after successful signup
         const loginRes = await signIn("credentials", {
           identifier: formData.email,
@@ -125,13 +125,13 @@ export default function SignupPage() {
           toast.info("Please sign in with your credentials.");
           router.push("/login?registered=true");
         } else {
-          toast.success("Welcome! You're now signed in.");
+          toast.auth.loginSuccess();
           router.push("/dashboard");
         }
       }
     } catch (err: any) {
       setError("Registration failed. Please try again.");
-      toast.error("Registration failed. Please try again.");
+      toast.auth.signupError("Please try again.");
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,11 +50,12 @@ export default function CheckoutPage() {
         );
       }
     } catch (e: any) {
-      setError(
+      const errorMsg =
         e?.response?.data?.error?.message ||
-          e?.message ||
-          "Failed to initialize payment"
-      );
+        e?.message ||
+        "Failed to initialize payment";
+      setError(errorMsg);
+      toast.payment.failed(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -214,9 +216,10 @@ export default function CheckoutPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    navigator.clipboard.writeText(dva.accountNumber)
-                  }
+                  onClick={() => {
+                    navigator.clipboard.writeText(dva.accountNumber);
+                    toast.copy.success("Account number");
+                  }}
                 >
                   Copy Account Number
                 </Button>
@@ -224,11 +227,12 @@ export default function CheckoutPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() =>
+                  onClick={() => {
                     navigator.clipboard.writeText(
                       `${dva.accountName} - ${dva.bankName}`
-                    )
-                  }
+                    );
+                    toast.copy.success("Account details");
+                  }}
                 >
                   Copy Account Details
                 </Button>

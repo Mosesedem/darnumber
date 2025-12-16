@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -61,8 +62,14 @@ export default function WalletPage() {
           );
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch wallet data:", error);
+      if (error.response?.status === 401) {
+        toast.auth.sessionExpired();
+        router.push("/login");
+      } else {
+        toast.error("Failed to load wallet data", "Please try again later.");
+      }
     } finally {
       setLoading(false);
     }
@@ -148,9 +155,10 @@ export default function WalletPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    navigator.clipboard.writeText(dva.accountNumber)
-                  }
+                  onClick={() => {
+                    navigator.clipboard.writeText(dva.accountNumber);
+                    toast.copy.success("Account number");
+                  }}
                 >
                   Copy Account Number
                 </Button>
@@ -158,11 +166,12 @@ export default function WalletPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() =>
+                  onClick={() => {
                     navigator.clipboard.writeText(
                       `${dva.accountName} - ${dva.bankName}`
-                    )
-                  }
+                    );
+                    toast.copy.success("Account details");
+                  }}
                 >
                   Copy Account Details
                 </Button>
@@ -177,7 +186,7 @@ export default function WalletPage() {
           )}
           <div className="flex gap-2">
             <Button
-              disabled
+              disabled={true}
               variant="secondary"
               onClick={async () => {
                 setDvaError("");
@@ -263,7 +272,6 @@ export default function WalletPage() {
                   setTimeout(() => setDvaCooldownUntil(0), cooldownMs);
                 }
               }}
-              disabled={Date.now() < dvaCooldownUntil}
             >
               {dva ? "Regenerate Account" : "Generate Dedicated Account"}
             </Button>

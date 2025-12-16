@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -33,14 +33,14 @@ export default function LoginPage() {
       if (res?.error) {
         const msg = res.error || "Login failed";
         setError(msg);
-        toast.error(msg);
+        toast.auth.loginError(msg);
       } else {
-        toast.success("Signed in successfully");
+        toast.auth.loginSuccess();
         router.push("/dashboard");
       }
     } catch (err: any) {
       setError("Login failed. Please try again.");
-      toast.error("Login failed. Please try again.");
+      toast.auth.loginError("Please try again.");
     } finally {
       setLoading(false);
     }

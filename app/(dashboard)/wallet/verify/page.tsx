@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import api from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -37,12 +38,20 @@ function VerifyContent() {
       try {
         const res = await api.verifyPayment(ref, provider);
         setResult(res?.data);
+        if (res?.data?.success) {
+          toast.payment.success(res.data.amount, "NGN");
+        } else if (res?.data?.status !== "PENDING") {
+          toast.payment.failed(
+            res?.data?.message || "Payment verification failed"
+          );
+        }
       } catch (e: any) {
-        setError(
+        const errorMsg =
           e?.response?.data?.error?.message ||
-            e?.message ||
-            "Verification failed"
-        );
+          e?.message ||
+          "Verification failed";
+        setError(errorMsg);
+        toast.payment.failed(errorMsg);
       } finally {
         setLoading(false);
       }
