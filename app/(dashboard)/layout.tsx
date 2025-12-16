@@ -15,6 +15,8 @@ import {
   Menu,
   X,
   DollarSignIcon,
+  PlusCircleIcon,
+  PhoneCallIcon,
 } from "lucide-react";
 import {
   SidebarProvider,
@@ -51,6 +53,11 @@ export default function DashboardLayout({
       icon: LayoutDashboard,
     },
     {
+      name: "Buy Numbers",
+      href: "/orders/new",
+      icon: PlusCircleIcon,
+    },
+    {
       name: "Orders",
       href: "/orders",
       icon: ShoppingCart,
@@ -69,6 +76,11 @@ export default function DashboardLayout({
       name: "Profile",
       href: "/profile",
       icon: User,
+    },
+    {
+      name: "Contact Us",
+      href: "/contact",
+      icon: PhoneCallIcon,
     },
   ];
 
