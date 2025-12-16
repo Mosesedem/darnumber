@@ -5,13 +5,16 @@ const EMAIL_HOST = process.env.EMAIL_HOST || "smtp.gmail.com";
 const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || "587", 10);
 const EMAIL_USER = process.env.EMAIL_USER || "";
 const EMAIL_PASS = process.env.EMAIL_PASS || "";
-const EMAIL_FROM = process.env.EMAIL_FROM || "DarNumber <noreply@darnumber.com>";
+const EMAIL_FROM =
+  process.env.EMAIL_FROM || "DarNumber <noreply@darnumber.com>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 // Create transporter
 const createTransporter = () => {
   if (!EMAIL_USER || !EMAIL_PASS) {
-    console.warn("[EmailService] Email credentials not configured. Emails will be logged to console.");
+    console.warn(
+      "[EmailService] Email credentials not configured. Emails will be logged to console."
+    );
     return null;
   }
 
@@ -208,9 +211,11 @@ export async function sendContactNotificationToAdmin(data: {
   ticketId: string;
 }): Promise<boolean> {
   const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
-  
+
   if (!adminEmail) {
-    console.warn("[EmailService] No admin email configured for contact notifications");
+    console.warn(
+      "[EmailService] No admin email configured for contact notifications"
+    );
     return false;
   }
 
@@ -237,37 +242,55 @@ export async function sendContactNotificationToAdmin(data: {
     <table style="width: 100%; border-collapse: collapse;">
       <tr>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Name:</td>
-        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${data.name}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${
+          data.name
+        }</td>
       </tr>
       <tr>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Email:</td>
-        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><a href="mailto:${data.email}">${data.email}</a></td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><a href="mailto:${
+          data.email
+        }">${data.email}</a></td>
       </tr>
-      ${data.phone ? `
+      ${
+        data.phone
+          ? `
       <tr>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Phone:</td>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${data.phone}</td>
       </tr>
-      ` : ""}
+      `
+          : ""
+      }
       <tr>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Category:</td>
-        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${data.category}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${
+          data.category
+        }</td>
       </tr>
-      ${data.subject ? `
+      ${
+        data.subject
+          ? `
       <tr>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Subject:</td>
         <td style="padding: 10px 0; border-bottom: 1px solid #e5e7eb;">${data.subject}</td>
       </tr>
-      ` : ""}
+      `
+          : ""
+      }
     </table>
     
     <div style="margin-top: 20px;">
       <p style="font-weight: 600; margin-bottom: 10px;">Message:</p>
-      <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e5e7eb; white-space: pre-wrap;">${data.message}</div>
+      <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e5e7eb; white-space: pre-wrap;">${
+        data.message
+      }</div>
     </div>
     
     <div style="margin-top: 20px; text-align: center;">
-      <a href="mailto:${data.email}?subject=Re: ${data.subject || `Support Request [#${data.ticketId}]`}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+      <a href="mailto:${data.email}?subject=Re: ${
+    data.subject || `Support Request [#${data.ticketId}]`
+  }" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
         Reply to Customer
       </a>
     </div>
@@ -284,7 +307,9 @@ export async function sendContactNotificationToAdmin(data: {
 
   return sendEmail({
     to: adminEmail,
-    subject: `[Support] ${data.category}: ${data.subject || "New Inquiry"} [#${data.ticketId}]`,
+    subject: `[Support] ${data.category}: ${data.subject || "New Inquiry"} [#${
+      data.ticketId
+    }]`,
     html,
   });
 }

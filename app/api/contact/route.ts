@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { error, json } from "@/lib/server/utils/response";
-import { sendContactFormEmail, sendContactFormConfirmation } from "@/lib/server/services/email.service";
+import {
+  sendContactNotificationToAdmin,
+  sendContactConfirmationEmail,
+} from "@/lib/server/services/email.service";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 
@@ -29,9 +33,10 @@ function checkRateLimit(ip: string): boolean {
 export async function POST(req: NextRequest) {
   try {
     // Get client IP for rate limiting
-    const ip = req.headers.get("x-forwarded-for") || 
-               req.headers.get("x-real-ip") || 
-               "unknown";
+    const ip =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("x-real-ip") ||
+      "unknown";
 
     // Check rate limit
     if (!checkRateLimit(ip)) {
@@ -78,6 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Sanitize inputs
+    const ticketId = crypto.randomBytes(6).toString("hex").toUpperCase();
     const sanitizedData = {
       name: name.trim().slice(0, 100),
       email: email.trim().toLowerCase().slice(0, 255),
@@ -85,30 +91,35 @@ export async function POST(req: NextRequest) {
       category: category.trim().slice(0, 50),
       subject: subject.trim().slice(0, 200),
       message: message.trim().slice(0, 5000),
+      ticketId,
     };
 
     // Send notification email to support team
-    const supportEmailResult = await sendContactFormEmail(sanitizedData);
+    const supportEmailResult = await sendContactNotificationToAdmin(
+      sanitizedData
+    );
 
-    if (!supportEmailResult.success) {
-      console.error("Failed to send contact form to support:", supportEmailResult.error);
+    if (!supportEmailResult) {
+      console.error("Failed to send contact form to support");
       return error("Failed to send your message. Please try again later.", 500);
     }
 
     // Send confirmation email to user
-    const confirmationResult = await sendContactFormConfirmation(
+    const confirmationResult = await sendContactConfirmationEmail(
       sanitizedData.email,
-      sanitizedData.name
+      sanitizedData.name,
+      ticketId
     );
 
-    if (!confirmationResult.success) {
-      console.error("Failed to send confirmation email:", confirmationResult.error);
+    if (!confirmationResult) {
+      console.error("Failed to send confirmation email");
       // Don't fail the request - the main email was sent
     }
 
     return json({
       success: true,
-      message: "Your message has been sent successfully. We will get back to you soon.",
+      message:
+        "Your message has been sent successfully. We will get back to you soon.",
     });
   } catch (e) {
     console.error("Contact form error:", e);

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       where: { token },
       include: {
         user: {
-          select: { id: true, email: true, firstName: true },
+          select: { id: true, email: true, userName: true },
         },
       },
     });
@@ -44,7 +44,10 @@ export async function POST(req: NextRequest) {
 
     // Check if token has expired
     if (resetToken.expiresAt < new Date()) {
-      return error("This reset link has expired. Please request a new one.", 400);
+      return error(
+        "This reset link has expired. Please request a new one.",
+        400
+      );
     }
 
     // Hash the new password
@@ -80,18 +83,22 @@ export async function POST(req: NextRequest) {
       data: {
         userId: resetToken.userId,
         action: "PASSWORD_RESET",
-        details: {
+        metadata: {
           method: "email_token",
           timestamp: new Date().toISOString(),
         },
-        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown",
+        ipAddress:
+          req.headers.get("x-forwarded-for") ||
+          req.headers.get("x-real-ip") ||
+          "unknown",
         userAgent: req.headers.get("user-agent") || "unknown",
       },
     });
 
     return json({
       success: true,
-      message: "Password has been reset successfully. You can now login with your new password.",
+      message:
+        "Password has been reset successfully. You can now login with your new password.",
     });
   } catch (e) {
     console.error("Password reset error:", e);

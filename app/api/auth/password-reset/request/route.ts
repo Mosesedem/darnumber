@@ -24,14 +24,15 @@ export async function POST(req: NextRequest) {
     // Find user by email
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
-      select: { id: true, firstName: true, email: true },
+      select: { id: true, userName: true, email: true },
     });
 
     // Always return success to prevent email enumeration
     if (!user) {
       return json({
         success: true,
-        message: "If an account exists with this email, you will receive a password reset link.",
+        message:
+          "If an account exists with this email, you will receive a password reset link.",
       });
     }
 
@@ -58,25 +59,22 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Build reset URL
-    const siteUrl = process.env.SITE_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const resetUrl = `${siteUrl}/reset-password?token=${token}`;
-
     // Send email
     const emailResult = await sendPasswordResetEmail(
       user.email,
-      user.firstName || "User",
-      resetUrl
+      token,
+      user.userName || "User"
     );
 
-    if (!emailResult.success) {
-      console.error("Failed to send password reset email:", emailResult.error);
+    if (!emailResult) {
+      console.error("Failed to send password reset email");
       // Still return success to prevent information leakage
     }
 
     return json({
       success: true,
-      message: "If an account exists with this email, you will receive a password reset link.",
+      message:
+        "If an account exists with this email, you will receive a password reset link.",
     });
   } catch (e) {
     console.error("Password reset request error:", e);
