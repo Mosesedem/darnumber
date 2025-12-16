@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   X,
+  DollarSignIcon,
 } from "lucide-react";
 import {
   SidebarProvider,
@@ -58,6 +59,11 @@ export default function DashboardLayout({
       name: "Wallet",
       href: "/wallet",
       icon: Wallet,
+    },
+    {
+      name: "Transactions",
+      href: "/transactions",
+      icon: DollarSignIcon,
     },
     {
       name: "Profile",

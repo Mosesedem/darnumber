@@ -117,7 +117,7 @@ export default function WalletPage() {
               </ul>
             </div>
             <Button onClick={handleDeposit} className="w-full" size="lg">
-              Continue to Checkout
+              Fund Wallet
             </Button>
           </div>
         </Card>

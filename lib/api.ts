@@ -153,9 +153,26 @@ class ApiClient {
     return response.data;
   }
 
-  async getOrders(page: number = 1, limit: number = 20) {
+  async getOrders(
+    page: number = 1,
+    limit: number = 20,
+    filters?: {
+      status?: string;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
+    }
+  ) {
     const response = await this.client.get("/orders", {
-      params: { page, limit },
+      params: {
+        page,
+        limit,
+        ...(filters?.status &&
+          filters.status !== "all" && { status: filters.status }),
+        ...(filters?.search && { search: filters.search }),
+        ...(filters?.startDate && { startDate: filters.startDate }),
+        ...(filters?.endDate && { endDate: filters.endDate }),
+      },
     });
     // Backend returns {ok: true, data: {orders: [], pagination: {}}}
     return {

@@ -166,14 +166,18 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center justify-between sm:justify-end sm:text-right gap-4">
                     <p className="font-medium text-sm md:text-base">
-                      ₦{order.finalPrice.toLocaleString()}
+                      ₦{order.finalPrice.toLocaleString("en-US")}
                     </p>
                     <p
                       className={`text-xs md:text-sm px-2 py-1 rounded-full ${
                         order.status === "COMPLETED"
                           ? "text-green-600 bg-green-50"
-                          : order.status === "WAITING_SMS"
+                          : order.status === "WAITING_FOR_SMS"
                           ? "text-yellow-600 bg-yellow-50"
+                          : order.status === "CANCELLED" ||
+                            order.status === "EXPIRED" ||
+                            order.status === "FAILED"
+                          ? "text-red-600 bg-red-50"
                           : "text-gray-600 bg-gray-50"
                       }`}
                     >
