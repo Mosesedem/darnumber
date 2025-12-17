@@ -129,13 +129,15 @@ export default function AdminWalletsPage() {
     setActionLoading(true);
     try {
       const amount =
-        adjustType === "add" ? parseFloat(adjustAmount) : -parseFloat(adjustAmount);
+        adjustType === "add"
+          ? parseFloat(adjustAmount)
+          : -parseFloat(adjustAmount);
       await api.adjustUserBalance(selectedUser.id, amount, adjustReason);
       toast.success(
         "Balance adjusted",
-        `Successfully ${adjustType === "add" ? "added" : "deducted"} ₦${parseFloat(
-          adjustAmount
-        ).toLocaleString()}`
+        `Successfully ${
+          adjustType === "add" ? "added" : "deducted"
+        } ₦${parseFloat(adjustAmount).toLocaleString()}`
       );
       setAdjustModalOpen(false);
       setAdjustAmount("");
@@ -191,7 +193,9 @@ export default function AdminWalletsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Balance</p>
-                <p className="text-xl font-bold">{formatCurrency(stats.totalBalance || 0)}</p>
+                <p className="text-xl font-bold">
+                  {formatCurrency(stats.totalBalance || 0)}
+                </p>
               </div>
             </div>
           </Card>
@@ -252,7 +256,9 @@ export default function AdminWalletsPage() {
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="balance-desc">Balance (High to Low)</SelectItem>
+              <SelectItem value="balance-desc">
+                Balance (High to Low)
+              </SelectItem>
               <SelectItem value="balance-asc">Balance (Low to High)</SelectItem>
               <SelectItem value="name-asc">Name (A-Z)</SelectItem>
               <SelectItem value="name-desc">Name (Z-A)</SelectItem>
@@ -268,13 +274,27 @@ export default function AdminWalletsPage() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Balance</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Currency</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Orders</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Last Login</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Balance
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Currency
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Orders
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Last Login
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -283,16 +303,22 @@ export default function AdminWalletsPage() {
                   <td className="px-4 py-3">
                     <div>
                       <p className="font-medium">{user.userName}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {user.email}
+                      </p>
                       {user.phone && (
-                        <p className="text-xs text-muted-foreground">{user.phone}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {user.phone}
+                        </p>
                       )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <p
                       className={`text-lg font-bold ${
-                        Number(user.balance) > 0 ? "text-green-600" : "text-gray-500"
+                        Number(user.balance) > 0
+                          ? "text-green-600"
+                          : "text-gray-500"
                       }`}
                     >
                       {formatCurrency(Number(user.balance), user.currency)}
@@ -315,7 +341,9 @@ export default function AdminWalletsPage() {
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="text-sm">{user._count?.orders || 0} orders</span>
+                    <span className="text-sm">
+                      {user._count?.orders || 0} orders
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">
                     {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}
@@ -376,15 +404,17 @@ export default function AdminWalletsPage() {
           <div className="flex items-center justify-between p-4 border-t">
             <p className="text-sm text-muted-foreground">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} wallets
+              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+              of {pagination.total} wallets
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === 1}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page - 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page - 1 }))
+                }
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
@@ -395,7 +425,9 @@ export default function AdminWalletsPage() {
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === pagination.pages}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page + 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page + 1 }))
+                }
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
@@ -419,7 +451,10 @@ export default function AdminWalletsPage() {
             <div>
               <Label>Current Balance</Label>
               <p className="text-2xl font-bold">
-                {formatCurrency(Number(selectedUser?.balance || 0), selectedUser?.currency)}
+                {formatCurrency(
+                  Number(selectedUser?.balance || 0),
+                  selectedUser?.currency
+                )}
               </p>
             </div>
             <div>
@@ -448,8 +483,10 @@ export default function AdminWalletsPage() {
                 <p className="text-xl font-bold">
                   {formatCurrency(
                     adjustType === "add"
-                      ? Number(selectedUser?.balance || 0) + parseFloat(adjustAmount || "0")
-                      : Number(selectedUser?.balance || 0) - parseFloat(adjustAmount || "0"),
+                      ? Number(selectedUser?.balance || 0) +
+                          parseFloat(adjustAmount || "0")
+                      : Number(selectedUser?.balance || 0) -
+                          parseFloat(adjustAmount || "0"),
                     selectedUser?.currency
                   )}
                 </p>
@@ -502,11 +539,15 @@ export default function AdminWalletsPage() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Phone</Label>
-                  <p className="font-medium">{userDetails.user?.phone || "—"}</p>
+                  <p className="font-medium">
+                    {userDetails.user?.phone || "—"}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Country</Label>
-                  <p className="font-medium">{userDetails.user?.country || "—"}</p>
+                  <p className="font-medium">
+                    {userDetails.user?.country || "—"}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Balance</Label>
@@ -536,20 +577,28 @@ export default function AdminWalletsPage() {
                   <Label className="text-muted-foreground">Statistics</Label>
                   <div className="grid grid-cols-3 gap-4 mt-2">
                     <div className="p-3 bg-muted rounded-lg text-center">
-                      <p className="text-2xl font-bold">{userDetails.stats.totalOrders || 0}</p>
-                      <p className="text-xs text-muted-foreground">Total Orders</p>
+                      <p className="text-2xl font-bold">
+                        {userDetails.stats.totalOrders || 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Orders
+                      </p>
                     </div>
                     <div className="p-3 bg-muted rounded-lg text-center">
                       <p className="text-2xl font-bold text-green-600">
                         {formatCurrency(userDetails.stats.totalSpent || 0)}
                       </p>
-                      <p className="text-xs text-muted-foreground">Total Spent</p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Spent
+                      </p>
                     </div>
                     <div className="p-3 bg-muted rounded-lg text-center">
                       <p className="text-2xl font-bold">
                         {userDetails.user?.transactions?.length || 0}
                       </p>
-                      <p className="text-xs text-muted-foreground">Transactions</p>
+                      <p className="text-xs text-muted-foreground">
+                        Transactions
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -566,7 +615,9 @@ export default function AdminWalletsPage() {
                         className="flex items-center justify-between p-2 bg-muted rounded"
                       >
                         <div>
-                          <p className="font-mono text-sm">{order.orderNumber}</p>
+                          <p className="font-mono text-sm">
+                            {order.orderNumber}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {order.serviceCode} • {order.country}
                           </p>
@@ -591,29 +642,39 @@ export default function AdminWalletsPage() {
               {/* Recent Transactions */}
               {userDetails.user?.transactions?.length > 0 && (
                 <div className="border-t pt-4">
-                  <Label className="text-muted-foreground">Recent Transactions</Label>
+                  <Label className="text-muted-foreground">
+                    Recent Transactions
+                  </Label>
                   <div className="mt-2 space-y-2">
-                    {userDetails.user.transactions.slice(0, 5).map((tx: any) => (
-                      <div
-                        key={tx.id}
-                        className="flex items-center justify-between p-2 bg-muted rounded"
-                      >
-                        <div>
-                          <p className="font-mono text-sm">{tx.transactionNumber}</p>
-                          <p className="text-xs text-muted-foreground">{tx.type}</p>
-                        </div>
-                        <p
-                          className={`font-medium ${
-                            ["DEPOSIT", "REFUND", "BONUS"].includes(tx.type)
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }`}
+                    {userDetails.user.transactions
+                      .slice(0, 5)
+                      .map((tx: any) => (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between p-2 bg-muted rounded"
                         >
-                          {["DEPOSIT", "REFUND", "BONUS"].includes(tx.type) ? "+" : "-"}
-                          {formatCurrency(Number(tx.amount))}
-                        </p>
-                      </div>
-                    ))}
+                          <div>
+                            <p className="font-mono text-sm">
+                              {tx.transactionNumber}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {tx.type}
+                            </p>
+                          </div>
+                          <p
+                            className={`font-medium ${
+                              ["DEPOSIT", "REFUND", "BONUS"].includes(tx.type)
+                                ? "text-green-600"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {["DEPOSIT", "REFUND", "BONUS"].includes(tx.type)
+                              ? "+"
+                              : "-"}
+                            {formatCurrency(Number(tx.amount))}
+                          </p>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}

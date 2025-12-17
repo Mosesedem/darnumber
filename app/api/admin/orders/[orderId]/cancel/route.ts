@@ -28,10 +28,7 @@ export async function POST(
     }
 
     if (!["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(order.status)) {
-      return error(
-        `Cannot cancel order with status ${order.status}`,
-        400
-      );
+      return error(`Cannot cancel order with status ${order.status}`, 400);
     }
 
     // Update order status

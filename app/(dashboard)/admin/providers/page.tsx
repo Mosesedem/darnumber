@@ -106,11 +106,16 @@ export default function AdminProvidersPage() {
       await api.updateProvider(provider.id, { isActive: !provider.isActive });
       toast.success(
         provider.isActive ? "Provider disabled" : "Provider enabled",
-        `${provider.displayName} has been ${provider.isActive ? "disabled" : "enabled"}.`
+        `${provider.displayName} has been ${
+          provider.isActive ? "disabled" : "enabled"
+        }.`
       );
       fetchProviders();
     } catch (error: any) {
-      toast.error("Update failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Update failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(null);
     }
@@ -120,10 +125,16 @@ export default function AdminProvidersPage() {
     setActionLoading(`sync-${provider.id}`);
     try {
       await api.syncProvider(provider.id);
-      toast.success("Sync started", `Syncing services for ${provider.displayName}...`);
+      toast.success(
+        "Sync started",
+        `Syncing services for ${provider.displayName}...`
+      );
       fetchProviders();
     } catch (error: any) {
-      toast.error("Sync failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Sync failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(null);
     }
@@ -147,11 +158,17 @@ export default function AdminProvidersPage() {
     setActionLoading("save");
     try {
       await api.updateProvider(selectedProvider.id, editForm);
-      toast.success("Provider updated", `${editForm.displayName} has been updated.`);
+      toast.success(
+        "Provider updated",
+        `${editForm.displayName} has been updated.`
+      );
       setEditModalOpen(false);
       fetchProviders();
     } catch (error: any) {
-      toast.error("Update failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Update failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(null);
     }
@@ -200,7 +217,9 @@ export default function AdminProvidersPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold">{provider.displayName}</h3>
-                    <p className="text-sm text-muted-foreground">{provider.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {provider.name}
+                    </p>
                   </div>
                 </div>
                 <Switch
@@ -212,7 +231,9 @@ export default function AdminProvidersPage() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Health Status</span>
+                  <span className="text-sm text-muted-foreground">
+                    Health Status
+                  </span>
                   <div className="flex items-center gap-2">
                     {getHealthIcon(provider.healthStatus)}
                     <Badge className={getHealthColor(provider.healthStatus)}>
@@ -222,23 +243,33 @@ export default function AdminProvidersPage() {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Priority</span>
+                  <span className="text-sm text-muted-foreground">
+                    Priority
+                  </span>
                   <span className="font-medium">{provider.priority}</span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Rate Limit</span>
+                  <span className="text-sm text-muted-foreground">
+                    Rate Limit
+                  </span>
                   <span className="font-medium">{provider.rateLimit}/hr</span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Services</span>
-                  <span className="font-medium">{provider._count?.services || 0}</span>
+                  <span className="text-sm text-muted-foreground">
+                    Services
+                  </span>
+                  <span className="font-medium">
+                    {provider._count?.services || 0}
+                  </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Prices</span>
-                  <span className="font-medium">{provider._count?.providerPrices || 0}</span>
+                  <span className="font-medium">
+                    {provider._count?.providerPrices || 0}
+                  </span>
                 </div>
 
                 <div className="pt-2 border-t">
@@ -309,7 +340,9 @@ export default function AdminProvidersPage() {
               <Label>API URL</Label>
               <Input
                 value={editForm.apiUrl}
-                onChange={(e) => setEditForm({ ...editForm, apiUrl: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, apiUrl: e.target.value })
+                }
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -319,7 +352,10 @@ export default function AdminProvidersPage() {
                   type="number"
                   value={editForm.priority}
                   onChange={(e) =>
-                    setEditForm({ ...editForm, priority: parseInt(e.target.value) || 0 })
+                    setEditForm({
+                      ...editForm,
+                      priority: parseInt(e.target.value) || 0,
+                    })
                   }
                 />
                 <p className="text-xs text-muted-foreground mt-1">
@@ -332,7 +368,10 @@ export default function AdminProvidersPage() {
                   type="number"
                   value={editForm.rateLimit}
                   onChange={(e) =>
-                    setEditForm({ ...editForm, rateLimit: parseInt(e.target.value) || 1000 })
+                    setEditForm({
+                      ...editForm,
+                      rateLimit: parseInt(e.target.value) || 1000,
+                    })
                   }
                 />
               </div>
@@ -341,7 +380,9 @@ export default function AdminProvidersPage() {
               <Label>Health Status</Label>
               <Select
                 value={editForm.healthStatus}
-                onValueChange={(val) => setEditForm({ ...editForm, healthStatus: val })}
+                onValueChange={(val) =>
+                  setEditForm({ ...editForm, healthStatus: val })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -357,7 +398,9 @@ export default function AdminProvidersPage() {
               <Label>Active</Label>
               <Switch
                 checked={editForm.isActive}
-                onCheckedChange={(checked) => setEditForm({ ...editForm, isActive: checked })}
+                onCheckedChange={(checked) =>
+                  setEditForm({ ...editForm, isActive: checked })
+                }
               />
             </div>
           </div>
@@ -365,8 +408,15 @@ export default function AdminProvidersPage() {
             <Button variant="outline" onClick={() => setEditModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveProvider} disabled={actionLoading === "save"}>
-              {actionLoading === "save" ? <Spinner className="w-4 h-4" /> : "Save Changes"}
+            <Button
+              onClick={handleSaveProvider}
+              disabled={actionLoading === "save"}
+            >
+              {actionLoading === "save" ? (
+                <Spinner className="w-4 h-4" />
+              ) : (
+                "Save Changes"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

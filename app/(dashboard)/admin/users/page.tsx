@@ -180,13 +180,15 @@ export default function AdminUsersPage() {
     setActionLoading(true);
     try {
       const amount =
-        adjustType === "add" ? parseFloat(adjustAmount) : -parseFloat(adjustAmount);
+        adjustType === "add"
+          ? parseFloat(adjustAmount)
+          : -parseFloat(adjustAmount);
       await api.adjustUserBalance(selectedUser.id, amount, adjustReason);
       toast.success(
         "Balance adjusted",
-        `Successfully ${adjustType === "add" ? "added" : "deducted"} ₦${parseFloat(
-          adjustAmount
-        ).toLocaleString()}`
+        `Successfully ${
+          adjustType === "add" ? "added" : "deducted"
+        } ₦${parseFloat(adjustAmount).toLocaleString()}`
       );
       setAdjustModalOpen(false);
       setAdjustAmount("");
@@ -253,7 +255,9 @@ export default function AdminUsersPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active</p>
-                <p className="text-xl font-bold text-green-600">{stats.active}</p>
+                <p className="text-xl font-bold text-green-600">
+                  {stats.active}
+                </p>
               </div>
             </div>
           </Card>
@@ -264,7 +268,9 @@ export default function AdminUsersPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Suspended</p>
-                <p className="text-xl font-bold text-red-600">{stats.suspended}</p>
+                <p className="text-xl font-bold text-red-600">
+                  {stats.suspended}
+                </p>
               </div>
             </div>
           </Card>
@@ -276,7 +282,11 @@ export default function AdminUsersPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Admins</p>
                 <p className="text-xl font-bold text-purple-600">
-                  {users.filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN").length}
+                  {
+                    users.filter(
+                      (u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN"
+                    ).length
+                  }
                 </p>
               </div>
             </div>
@@ -296,7 +306,13 @@ export default function AdminUsersPage() {
               className="pl-10"
             />
           </div>
-          <Select value={status} onValueChange={(val) => { setStatus(val); setPagination((p: any) => ({ ...p, page: 1 })); }}>
+          <Select
+            value={status}
+            onValueChange={(val) => {
+              setStatus(val);
+              setPagination((p: any) => ({ ...p, page: 1 }));
+            }}
+          >
             <SelectTrigger className="w-full md:w-48">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -317,13 +333,27 @@ export default function AdminUsersPage() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Balance</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Role</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Orders</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Joined</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Balance
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Role
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Orders
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Joined
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -335,23 +365,31 @@ export default function AdminUsersPage() {
                       className="hover:underline"
                     >
                       <p className="font-medium">{user.userName}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {user.email}
+                      </p>
                       {user.phone && (
-                        <p className="text-xs text-muted-foreground">{user.phone}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {user.phone}
+                        </p>
                       )}
                     </Link>
                   </td>
                   <td className="px-4 py-3">
                     <p
                       className={`font-medium ${
-                        Number(user.balance) > 0 ? "text-green-600" : "text-gray-500"
+                        Number(user.balance) > 0
+                          ? "text-green-600"
+                          : "text-gray-500"
                       }`}
                     >
                       {formatCurrency(Number(user.balance), user.currency)}
                     </p>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge className={getStatusColor(user.status)}>{user.status}</Badge>
+                    <Badge className={getStatusColor(user.status)}>
+                      {user.status}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3">
                     <Badge
@@ -365,7 +403,9 @@ export default function AdminUsersPage() {
                       {user.role}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-sm">{user._count?.orders || 0}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {user._count?.orders || 0}
+                  </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">
                     {formatDate(user.createdAt)}
                   </td>
@@ -409,7 +449,11 @@ export default function AdminUsersPage() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => handleToggleStatus(user)}
-                          className={user.status === "ACTIVE" ? "text-red-600" : "text-green-600"}
+                          className={
+                            user.status === "ACTIVE"
+                              ? "text-red-600"
+                              : "text-green-600"
+                          }
                         >
                           {user.status === "ACTIVE" ? (
                             <>
@@ -443,15 +487,17 @@ export default function AdminUsersPage() {
           <div className="flex items-center justify-between p-4 border-t">
             <p className="text-sm text-muted-foreground">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} users
+              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+              of {pagination.total} users
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === 1}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page - 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page - 1 }))
+                }
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
@@ -462,7 +508,9 @@ export default function AdminUsersPage() {
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === pagination.pages}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page + 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page + 1 }))
+                }
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
@@ -486,7 +534,10 @@ export default function AdminUsersPage() {
             <div>
               <Label>Current Balance</Label>
               <p className="text-2xl font-bold">
-                {formatCurrency(Number(selectedUser?.balance || 0), selectedUser?.currency)}
+                {formatCurrency(
+                  Number(selectedUser?.balance || 0),
+                  selectedUser?.currency
+                )}
               </p>
             </div>
             <div>
@@ -515,8 +566,10 @@ export default function AdminUsersPage() {
                 <p className="text-xl font-bold">
                   {formatCurrency(
                     adjustType === "add"
-                      ? Number(selectedUser?.balance || 0) + parseFloat(adjustAmount || "0")
-                      : Number(selectedUser?.balance || 0) - parseFloat(adjustAmount || "0"),
+                      ? Number(selectedUser?.balance || 0) +
+                          parseFloat(adjustAmount || "0")
+                      : Number(selectedUser?.balance || 0) -
+                          parseFloat(adjustAmount || "0"),
                     selectedUser?.currency
                   )}
                 </p>

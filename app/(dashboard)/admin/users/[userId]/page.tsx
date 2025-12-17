@@ -101,7 +101,10 @@ export default function AdminUserDetailPage() {
       setEditModalOpen(false);
       fetchUserDetails();
     } catch (error: any) {
-      toast.error("Update failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Update failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -112,13 +115,15 @@ export default function AdminUserDetailPage() {
     setActionLoading(true);
     try {
       const amount =
-        adjustType === "add" ? parseFloat(adjustAmount) : -parseFloat(adjustAmount);
+        adjustType === "add"
+          ? parseFloat(adjustAmount)
+          : -parseFloat(adjustAmount);
       await api.adjustUserBalance(userId, amount, adjustReason);
       toast.success(
         "Balance adjusted",
-        `Successfully ${adjustType === "add" ? "added" : "deducted"} ₦${parseFloat(
-          adjustAmount
-        ).toLocaleString()}`
+        `Successfully ${
+          adjustType === "add" ? "added" : "deducted"
+        } ₦${parseFloat(adjustAmount).toLocaleString()}`
       );
       setAdjustModalOpen(false);
       setAdjustAmount("");
@@ -256,9 +261,12 @@ export default function AdminUserDetailPage() {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-muted-foreground">Joined</p>
-          <p className="text-lg font-medium">{formatDate(user.createdAt).split(",")[0]}</p>
+          <p className="text-lg font-medium">
+            {formatDate(user.createdAt).split(",")[0]}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Last login: {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}
+            Last login:{" "}
+            {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}
           </p>
         </Card>
       </div>
@@ -267,7 +275,9 @@ export default function AdminUserDetailPage() {
       <Tabs defaultValue="info" className="space-y-4">
         <TabsList>
           <TabsTrigger value="info">User Info</TabsTrigger>
-          <TabsTrigger value="orders">Orders ({user.orders?.length || 0})</TabsTrigger>
+          <TabsTrigger value="orders">
+            Orders ({user.orders?.length || 0})
+          </TabsTrigger>
           <TabsTrigger value="transactions">
             Transactions ({user.transactions?.length || 0})
           </TabsTrigger>
@@ -287,7 +297,9 @@ export default function AdminUserDetailPage() {
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{user.email}</p>
                       {user.emailVerified && (
-                        <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                        <Badge className="bg-green-100 text-green-800">
+                          Verified
+                        </Badge>
                       )}
                     </div>
                   </div>
@@ -299,7 +311,9 @@ export default function AdminUserDetailPage() {
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{user.phone || "—"}</p>
                       {user.phone && user.phoneVerified && (
-                        <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                        <Badge className="bg-green-100 text-green-800">
+                          Verified
+                        </Badge>
                       )}
                     </div>
                   </div>
@@ -316,7 +330,9 @@ export default function AdminUserDetailPage() {
                 <div className="flex items-center gap-3">
                   <CreditCard className="w-5 h-5 text-muted-foreground" />
                   <div>
-                    <p className="text-sm text-muted-foreground">Bank Details</p>
+                    <p className="text-sm text-muted-foreground">
+                      Bank Details
+                    </p>
                     <p className="font-medium">{user.bankName || "Not set"}</p>
                     {user.accountNumber && (
                       <p className="text-sm text-muted-foreground">
@@ -339,7 +355,9 @@ export default function AdminUserDetailPage() {
                 <div className="flex items-center gap-3">
                   <Calendar className="w-5 h-5 text-muted-foreground" />
                   <div>
-                    <p className="text-sm text-muted-foreground">Referral Code</p>
+                    <p className="text-sm text-muted-foreground">
+                      Referral Code
+                    </p>
                     <div className="flex items-center gap-2">
                       <p className="font-mono">{user.referralCode || "—"}</p>
                       {user.referralCode && (
@@ -366,18 +384,32 @@ export default function AdminUserDetailPage() {
                 <table className="w-full">
                   <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Order</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Service</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Phone</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Price</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Order
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Service
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Phone
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Status
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Price
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Date
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {user.orders.map((order: any) => (
                       <tr key={order.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-3 font-mono text-sm">{order.orderNumber}</td>
+                        <td className="px-4 py-3 font-mono text-sm">
+                          {order.orderNumber}
+                        </td>
                         <td className="px-4 py-3">
                           {order.serviceCode} ({order.country})
                         </td>
@@ -426,12 +458,24 @@ export default function AdminUserDetailPage() {
                 <table className="w-full">
                   <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Transaction</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Amount</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Balance After</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Transaction
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Type
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Amount
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Balance After
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Status
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">
+                        Date
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -441,21 +485,29 @@ export default function AdminUserDetailPage() {
                           {tx.transactionNumber}
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant="outline">{tx.type.replace(/_/g, " ")}</Badge>
+                          <Badge variant="outline">
+                            {tx.type.replace(/_/g, " ")}
+                          </Badge>
                         </td>
                         <td className="px-4 py-3">
                           <span
                             className={`font-medium ${
-                              ["DEPOSIT", "REFUND", "BONUS", "REFERRAL_REWARD"].includes(
-                                tx.type
-                              )
+                              [
+                                "DEPOSIT",
+                                "REFUND",
+                                "BONUS",
+                                "REFERRAL_REWARD",
+                              ].includes(tx.type)
                                 ? "text-green-600"
                                 : "text-red-600"
                             }`}
                           >
-                            {["DEPOSIT", "REFUND", "BONUS", "REFERRAL_REWARD"].includes(
-                              tx.type
-                            )
+                            {[
+                              "DEPOSIT",
+                              "REFUND",
+                              "BONUS",
+                              "REFERRAL_REWARD",
+                            ].includes(tx.type)
                               ? "+"
                               : "-"}
                             {formatCurrency(Number(tx.amount), tx.currency)}
@@ -504,7 +556,8 @@ export default function AdminUserDetailPage() {
                       <div>
                         <p className="font-medium">{log.action}</p>
                         <p className="text-sm text-muted-foreground">
-                          {log.resource} {log.resourceId ? `• ${log.resourceId}` : ""}
+                          {log.resource}{" "}
+                          {log.resourceId ? `• ${log.resourceId}` : ""}
                         </p>
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -540,7 +593,9 @@ export default function AdminUserDetailPage() {
               <Label>Status</Label>
               <Select
                 value={editForm.status}
-                onValueChange={(val) => setEditForm({ ...editForm, status: val })}
+                onValueChange={(val) =>
+                  setEditForm({ ...editForm, status: val })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -549,7 +604,9 @@ export default function AdminUserDetailPage() {
                   <SelectItem value="ACTIVE">Active</SelectItem>
                   <SelectItem value="SUSPENDED">Suspended</SelectItem>
                   <SelectItem value="BANNED">Banned</SelectItem>
-                  <SelectItem value="PENDING_VERIFICATION">Pending Verification</SelectItem>
+                  <SelectItem value="PENDING_VERIFICATION">
+                    Pending Verification
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -206,7 +206,9 @@ export default function AdminTransactionsPage() {
                 <ArrowUpCircle className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Withdrawals</p>
+                <p className="text-sm text-muted-foreground">
+                  Total Withdrawals
+                </p>
                 <p className="text-xl font-bold text-orange-600">
                   {formatCurrency(stats.totalWithdrawals || 0)}
                 </p>
@@ -254,7 +256,13 @@ export default function AdminTransactionsPage() {
               className="pl-10"
             />
           </div>
-          <Select value={type} onValueChange={(val) => { setType(val); setPagination((p: any) => ({ ...p, page: 1 })); }}>
+          <Select
+            value={type}
+            onValueChange={(val) => {
+              setType(val);
+              setPagination((p: any) => ({ ...p, page: 1 }));
+            }}
+          >
             <SelectTrigger className="w-full md:w-48">
               <SelectValue placeholder="Filter by type" />
             </SelectTrigger>
@@ -266,7 +274,13 @@ export default function AdminTransactionsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={status} onValueChange={(val) => { setStatus(val); setPagination((p: any) => ({ ...p, page: 1 })); }}>
+          <Select
+            value={status}
+            onValueChange={(val) => {
+              setStatus(val);
+              setPagination((p: any) => ({ ...p, page: 1 }));
+            }}
+          >
             <SelectTrigger className="w-full md:w-40">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -278,7 +292,10 @@ export default function AdminTransactionsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
+          <Button
+            variant="outline"
+            onClick={() => setShowFilters(!showFilters)}
+          >
             <Filter className="w-4 h-4 mr-2" />
             {showFilters ? "Hide" : "More"}
           </Button>
@@ -326,14 +343,30 @@ export default function AdminTransactionsPage() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium">Transaction</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Amount</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Balance</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Transaction
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Amount
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Balance
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Date
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -341,7 +374,9 @@ export default function AdminTransactionsPage() {
                 <tr key={tx.id} className="hover:bg-muted/30">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm">{tx.transactionNumber}</span>
+                      <span className="font-mono text-sm">
+                        {tx.transactionNumber}
+                      </span>
                       <button
                         onClick={() => copyToClipboard(tx.transactionNumber)}
                         className="text-muted-foreground hover:text-foreground"
@@ -352,22 +387,38 @@ export default function AdminTransactionsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div>
-                      <p className="font-medium text-sm">{tx.user?.userName || "N/A"}</p>
-                      <p className="text-xs text-muted-foreground">{tx.user?.email}</p>
+                      <p className="font-medium text-sm">
+                        {tx.user?.userName || "N/A"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {tx.user?.email}
+                      </p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge className={getTypeColor(tx.type)}>{tx.type.replace(/_/g, " ")}</Badge>
+                    <Badge className={getTypeColor(tx.type)}>
+                      {tx.type.replace(/_/g, " ")}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3">
                     <span
                       className={`font-medium ${
-                        ["DEPOSIT", "REFUND", "BONUS", "REFERRAL_REWARD"].includes(tx.type)
+                        [
+                          "DEPOSIT",
+                          "REFUND",
+                          "BONUS",
+                          "REFERRAL_REWARD",
+                        ].includes(tx.type)
                           ? "text-green-600"
                           : "text-red-600"
                       }`}
                     >
-                      {["DEPOSIT", "REFUND", "BONUS", "REFERRAL_REWARD"].includes(tx.type)
+                      {[
+                        "DEPOSIT",
+                        "REFUND",
+                        "BONUS",
+                        "REFERRAL_REWARD",
+                      ].includes(tx.type)
                         ? "+"
                         : "-"}
                       {formatCurrency(Number(tx.amount), tx.currency)}
@@ -375,12 +426,20 @@ export default function AdminTransactionsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm">
-                      <p>Before: {formatCurrency(Number(tx.balanceBefore), tx.currency)}</p>
-                      <p className="font-medium">After: {formatCurrency(Number(tx.balanceAfter), tx.currency)}</p>
+                      <p>
+                        Before:{" "}
+                        {formatCurrency(Number(tx.balanceBefore), tx.currency)}
+                      </p>
+                      <p className="font-medium">
+                        After:{" "}
+                        {formatCurrency(Number(tx.balanceAfter), tx.currency)}
+                      </p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge className={getStatusColor(tx.status)}>{tx.status}</Badge>
+                    <Badge className={getStatusColor(tx.status)}>
+                      {tx.status}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">
                     {formatDate(tx.createdAt)}
@@ -414,15 +473,17 @@ export default function AdminTransactionsPage() {
           <div className="flex items-center justify-between p-4 border-t">
             <p className="text-sm text-muted-foreground">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} transactions
+              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+              of {pagination.total} transactions
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === 1}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page - 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page - 1 }))
+                }
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
@@ -433,7 +494,9 @@ export default function AdminTransactionsPage() {
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === pagination.pages}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page + 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page + 1 }))
+                }
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
@@ -465,7 +528,9 @@ export default function AdminTransactionsPage() {
                 <div>
                   <Label className="text-muted-foreground">Status</Label>
                   <div className="mt-1">
-                    <Badge className={getStatusColor(selectedTransaction.status)}>
+                    <Badge
+                      className={getStatusColor(selectedTransaction.status)}
+                    >
                       {selectedTransaction.status}
                     </Badge>
                   </div>
@@ -473,7 +538,10 @@ export default function AdminTransactionsPage() {
                 <div>
                   <Label className="text-muted-foreground">Amount</Label>
                   <p className="text-lg font-bold">
-                    {formatCurrency(Number(selectedTransaction.amount), selectedTransaction.currency)}
+                    {formatCurrency(
+                      Number(selectedTransaction.amount),
+                      selectedTransaction.currency
+                    )}
                   </p>
                 </div>
                 <div>
@@ -481,15 +549,23 @@ export default function AdminTransactionsPage() {
                   <p className="font-medium">{selectedTransaction.currency}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Balance Before</Label>
+                  <Label className="text-muted-foreground">
+                    Balance Before
+                  </Label>
                   <p className="font-medium">
-                    {formatCurrency(Number(selectedTransaction.balanceBefore), selectedTransaction.currency)}
+                    {formatCurrency(
+                      Number(selectedTransaction.balanceBefore),
+                      selectedTransaction.currency
+                    )}
                   </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Balance After</Label>
                   <p className="font-medium">
-                    {formatCurrency(Number(selectedTransaction.balanceAfter), selectedTransaction.currency)}
+                    {formatCurrency(
+                      Number(selectedTransaction.balanceAfter),
+                      selectedTransaction.currency
+                    )}
                   </p>
                 </div>
               </div>
@@ -497,8 +573,12 @@ export default function AdminTransactionsPage() {
               <div className="border-t pt-4">
                 <Label className="text-muted-foreground">User</Label>
                 <div className="mt-1">
-                  <p className="font-medium">{selectedTransaction.user?.userName}</p>
-                  <p className="text-sm text-muted-foreground">{selectedTransaction.user?.email}</p>
+                  <p className="font-medium">
+                    {selectedTransaction.user?.userName}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedTransaction.user?.email}
+                  </p>
                 </div>
               </div>
 
@@ -518,7 +598,9 @@ export default function AdminTransactionsPage() {
 
               {selectedTransaction.paymentMethod && (
                 <div className="border-t pt-4">
-                  <Label className="text-muted-foreground">Payment Method</Label>
+                  <Label className="text-muted-foreground">
+                    Payment Method
+                  </Label>
                   <p className="mt-1">{selectedTransaction.paymentMethod}</p>
                 </div>
               )}
@@ -526,18 +608,24 @@ export default function AdminTransactionsPage() {
               {selectedTransaction.referenceId && (
                 <div className="border-t pt-4">
                   <Label className="text-muted-foreground">Reference ID</Label>
-                  <p className="font-mono text-sm">{selectedTransaction.referenceId}</p>
+                  <p className="font-mono text-sm">
+                    {selectedTransaction.referenceId}
+                  </p>
                 </div>
               )}
 
               <div className="border-t pt-4 grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">Created</Label>
-                  <p className="text-sm">{formatDate(selectedTransaction.createdAt)}</p>
+                  <p className="text-sm">
+                    {formatDate(selectedTransaction.createdAt)}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Updated</Label>
-                  <p className="text-sm">{formatDate(selectedTransaction.updatedAt)}</p>
+                  <p className="text-sm">
+                    {formatDate(selectedTransaction.updatedAt)}
+                  </p>
                 </div>
               </div>
             </div>

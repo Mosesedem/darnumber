@@ -146,7 +146,10 @@ export default function AdminSettingsPage() {
       setRuleModalOpen(false);
       fetchPricingRules();
     } catch (error: any) {
-      toast.error("Save failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Save failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -162,7 +165,10 @@ export default function AdminSettingsPage() {
       setRuleToDelete(null);
       fetchPricingRules();
     } catch (error: any) {
-      toast.error("Delete failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Delete failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -177,7 +183,10 @@ export default function AdminSettingsPage() {
       );
       fetchPricingRules();
     } catch (error: any) {
-      toast.error("Update failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Update failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     }
   };
 
@@ -207,7 +216,8 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-xl font-semibold">Pricing Rules</h2>
               <p className="text-muted-foreground">
-                Configure profit margins for services. Higher priority rules take precedence.
+                Configure profit margins for services. Higher priority rules
+                take precedence.
               </p>
             </div>
             <div className="flex gap-2">
@@ -228,13 +238,27 @@ export default function AdminSettingsPage() {
               <table className="w-full">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Service</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Country</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Profit Type</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Profit Value</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Priority</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Service
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Country
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Profit Type
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Profit Value
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Priority
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -317,16 +341,23 @@ export default function AdminSettingsPage() {
               <div className="p-8 text-center text-muted-foreground">
                 <Settings className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No pricing rules configured.</p>
-                <p className="text-sm">Click "Add Rule" to create your first pricing rule.</p>
+                <p className="text-sm">
+                  Click "Add Rule" to create your first pricing rule.
+                </p>
               </div>
             )}
           </Card>
 
           {/* Info Card */}
           <Card className="p-4 bg-blue-50 border-blue-200">
-            <h3 className="font-medium text-blue-800 mb-2">How Pricing Rules Work</h3>
+            <h3 className="font-medium text-blue-800 mb-2">
+              How Pricing Rules Work
+            </h3>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Rules with higher priority take precedence over lower priority rules</li>
+              <li>
+                • Rules with higher priority take precedence over lower priority
+                rules
+              </li>
               <li>• Specific service/country rules override general rules</li>
               <li>• Percentage adds a markup on top of the provider cost</li>
               <li>• Fixed adds a flat amount to the provider cost</li>
@@ -378,7 +409,8 @@ export default function AdminSettingsPage() {
               <div>
                 <p className="font-medium">Enable Maintenance Mode</p>
                 <p className="text-sm text-muted-foreground">
-                  When enabled, users will see a maintenance message instead of the app.
+                  When enabled, users will see a maintenance message instead of
+                  the app.
                 </p>
               </div>
               <Switch />
@@ -391,7 +423,9 @@ export default function AdminSettingsPage() {
       <Dialog open={ruleModalOpen} onOpenChange={setRuleModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRule ? "Edit Pricing Rule" : "Create Pricing Rule"}</DialogTitle>
+            <DialogTitle>
+              {editingRule ? "Edit Pricing Rule" : "Create Pricing Rule"}
+            </DialogTitle>
             <DialogDescription>
               Configure profit margins for services.
             </DialogDescription>
@@ -401,7 +435,9 @@ export default function AdminSettingsPage() {
               <Label>Service Code (optional)</Label>
               <Input
                 value={ruleForm.serviceCode}
-                onChange={(e) => setRuleForm({ ...ruleForm, serviceCode: e.target.value })}
+                onChange={(e) =>
+                  setRuleForm({ ...ruleForm, serviceCode: e.target.value })
+                }
                 placeholder="e.g., google, whatsapp (leave empty for all)"
               />
             </div>
@@ -409,7 +445,9 @@ export default function AdminSettingsPage() {
               <Label>Country (optional)</Label>
               <Input
                 value={ruleForm.country}
-                onChange={(e) => setRuleForm({ ...ruleForm, country: e.target.value })}
+                onChange={(e) =>
+                  setRuleForm({ ...ruleForm, country: e.target.value })
+                }
                 placeholder="e.g., US, RU, NG (leave empty for all)"
               />
             </div>
@@ -418,7 +456,9 @@ export default function AdminSettingsPage() {
                 <Label>Profit Type</Label>
                 <Select
                   value={ruleForm.profitType}
-                  onValueChange={(val) => setRuleForm({ ...ruleForm, profitType: val })}
+                  onValueChange={(val) =>
+                    setRuleForm({ ...ruleForm, profitType: val })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -431,14 +471,21 @@ export default function AdminSettingsPage() {
               </div>
               <div>
                 <Label>
-                  Profit Value {ruleForm.profitType === "PERCENTAGE" ? "(%)" : "(₦)"}
+                  Profit Value{" "}
+                  {ruleForm.profitType === "PERCENTAGE" ? "(%)" : "(₦)"}
                 </Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={ruleForm.profitValue}
-                  onChange={(e) => setRuleForm({ ...ruleForm, profitValue: e.target.value })}
-                  placeholder={ruleForm.profitType === "PERCENTAGE" ? "e.g., 20" : "e.g., 50"}
+                  onChange={(e) =>
+                    setRuleForm({ ...ruleForm, profitValue: e.target.value })
+                  }
+                  placeholder={
+                    ruleForm.profitType === "PERCENTAGE"
+                      ? "e.g., 20"
+                      : "e.g., 50"
+                  }
                 />
               </div>
             </div>
@@ -448,7 +495,10 @@ export default function AdminSettingsPage() {
                 type="number"
                 value={ruleForm.priority}
                 onChange={(e) =>
-                  setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) || 0 })
+                  setRuleForm({
+                    ...ruleForm,
+                    priority: parseInt(e.target.value) || 0,
+                  })
                 }
               />
               <p className="text-xs text-muted-foreground mt-1">
@@ -459,7 +509,9 @@ export default function AdminSettingsPage() {
               <Label>Active</Label>
               <Switch
                 checked={ruleForm.isActive}
-                onCheckedChange={(checked) => setRuleForm({ ...ruleForm, isActive: checked })}
+                onCheckedChange={(checked) =>
+                  setRuleForm({ ...ruleForm, isActive: checked })
+                }
               />
             </div>
           </div>
@@ -468,7 +520,13 @@ export default function AdminSettingsPage() {
               Cancel
             </Button>
             <Button onClick={handleSaveRule} disabled={actionLoading}>
-              {actionLoading ? <Spinner className="w-4 h-4" /> : editingRule ? "Update" : "Create"}
+              {actionLoading ? (
+                <Spinner className="w-4 h-4" />
+              ) : editingRule ? (
+                "Update"
+              ) : (
+                "Create"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -480,7 +538,8 @@ export default function AdminSettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Pricing Rule?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the pricing rule.
+              This action cannot be undone. This will permanently delete the
+              pricing rule.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

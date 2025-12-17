@@ -156,14 +156,20 @@ export default function AdminOrdersPage() {
     setActionLoading(true);
     try {
       await api.refundOrder(selectedOrder.id, refundReason);
-      toast.success("Order refunded", "The order has been refunded successfully.");
+      toast.success(
+        "Order refunded",
+        "The order has been refunded successfully."
+      );
       setRefundModalOpen(false);
       setRefundReason("");
       setSelectedOrder(null);
       fetchOrders();
       fetchStats();
     } catch (error: any) {
-      toast.error("Refund failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Refund failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -177,7 +183,10 @@ export default function AdminOrdersPage() {
       fetchOrders();
       fetchStats();
     } catch (error: any) {
-      toast.error("Cancel failed", error.response?.data?.error?.message || "Please try again.");
+      toast.error(
+        "Cancel failed",
+        error.response?.data?.error?.message || "Please try again."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -227,18 +236,22 @@ export default function AdminOrdersPage() {
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Completed</p>
             <p className="text-2xl font-bold text-green-600">
-              {stats.ordersByStatus?.find((s: any) => s.status === "COMPLETED")?._count || 0}
+              {stats.ordersByStatus?.find((s: any) => s.status === "COMPLETED")
+                ?._count || 0}
             </p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Pending</p>
             <p className="text-2xl font-bold text-yellow-600">
-              {stats.ordersByStatus?.find((s: any) => s.status === "PENDING")?._count || 0}
+              {stats.ordersByStatus?.find((s: any) => s.status === "PENDING")
+                ?._count || 0}
             </p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Total Revenue</p>
-            <p className="text-2xl font-bold">{formatCurrency(Number(stats.totalRevenue) || 0)}</p>
+            <p className="text-2xl font-bold">
+              {formatCurrency(Number(stats.totalRevenue) || 0)}
+            </p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">Profit</p>
@@ -261,7 +274,13 @@ export default function AdminOrdersPage() {
               className="pl-10"
             />
           </div>
-          <Select value={status} onValueChange={(val) => { setStatus(val); setPagination((p: any) => ({ ...p, page: 1 })); }}>
+          <Select
+            value={status}
+            onValueChange={(val) => {
+              setStatus(val);
+              setPagination((p: any) => ({ ...p, page: 1 }));
+            }}
+          >
             <SelectTrigger className="w-full md:w-48">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -273,7 +292,10 @@ export default function AdminOrdersPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
+          <Button
+            variant="outline"
+            onClick={() => setShowFilters(!showFilters)}
+          >
             <Filter className="w-4 h-4 mr-2" />
             {showFilters ? "Hide Filters" : "More Filters"}
           </Button>
@@ -320,14 +342,30 @@ export default function AdminOrdersPage() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium">Order</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Service</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Phone</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Price</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Order
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Service
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Phone
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Price
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Date
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -335,7 +373,9 @@ export default function AdminOrdersPage() {
                 <tr key={order.id} className="hover:bg-muted/30">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm">{order.orderNumber}</span>
+                      <span className="font-mono text-sm">
+                        {order.orderNumber}
+                      </span>
                       <button
                         onClick={() => copyToClipboard(order.orderNumber)}
                         className="text-muted-foreground hover:text-foreground"
@@ -346,20 +386,28 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div>
-                      <p className="font-medium text-sm">{order.user?.userName || "N/A"}</p>
-                      <p className="text-xs text-muted-foreground">{order.user?.email}</p>
+                      <p className="font-medium text-sm">
+                        {order.user?.userName || "N/A"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {order.user?.email}
+                      </p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <div>
                       <p className="font-medium text-sm">{order.serviceCode}</p>
-                      <p className="text-xs text-muted-foreground">{order.country}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {order.country}
+                      </p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     {order.phoneNumber ? (
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm">{order.phoneNumber}</span>
+                        <span className="font-mono text-sm">
+                          {order.phoneNumber}
+                        </span>
                         <button
                           onClick={() => copyToClipboard(order.phoneNumber)}
                           className="text-muted-foreground hover:text-foreground"
@@ -372,11 +420,15 @@ export default function AdminOrdersPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+                    <Badge className={getStatusColor(order.status)}>
+                      {order.status}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3">
                     <div>
-                      <p className="font-medium text-sm">{formatCurrency(Number(order.finalPrice))}</p>
+                      <p className="font-medium text-sm">
+                        {formatCurrency(Number(order.finalPrice))}
+                      </p>
                       {order.cost && (
                         <p className="text-xs text-muted-foreground">
                           Cost: {formatCurrency(Number(order.cost))}
@@ -405,7 +457,9 @@ export default function AdminOrdersPage() {
                           View Details
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        {["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(order.status) && (
+                        {["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(
+                          order.status
+                        ) && (
                           <DropdownMenuItem
                             onClick={() => handleCancelOrder(order)}
                             className="text-orange-600"
@@ -414,7 +468,12 @@ export default function AdminOrdersPage() {
                             Cancel Order
                           </DropdownMenuItem>
                         )}
-                        {["COMPLETED", "CANCELLED", "FAILED", "EXPIRED"].includes(order.status) &&
+                        {[
+                          "COMPLETED",
+                          "CANCELLED",
+                          "FAILED",
+                          "EXPIRED",
+                        ].includes(order.status) &&
                           order.status !== "REFUNDED" && (
                             <DropdownMenuItem
                               onClick={() => {
@@ -447,15 +506,17 @@ export default function AdminOrdersPage() {
           <div className="flex items-center justify-between p-4 border-t">
             <p className="text-sm text-muted-foreground">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} orders
+              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+              of {pagination.total} orders
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === 1}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page - 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page - 1 }))
+                }
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
@@ -466,7 +527,9 @@ export default function AdminOrdersPage() {
                 variant="outline"
                 size="sm"
                 disabled={pagination.page === pagination.pages}
-                onClick={() => setPagination((p: any) => ({ ...p, page: p.page + 1 }))}
+                onClick={() =>
+                  setPagination((p: any) => ({ ...p, page: p.page + 1 }))
+                }
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
@@ -509,7 +572,9 @@ export default function AdminOrdersPage() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Phone Number</Label>
-                  <p className="font-mono">{selectedOrder.phoneNumber || "—"}</p>
+                  <p className="font-mono">
+                    {selectedOrder.phoneNumber || "—"}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">SMS Code</Label>
@@ -517,11 +582,15 @@ export default function AdminOrdersPage() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Price</Label>
-                  <p className="font-medium">{formatCurrency(Number(selectedOrder.finalPrice))}</p>
+                  <p className="font-medium">
+                    {formatCurrency(Number(selectedOrder.finalPrice))}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Cost</Label>
-                  <p className="font-medium">{formatCurrency(Number(selectedOrder.cost || 0))}</p>
+                  <p className="font-medium">
+                    {formatCurrency(Number(selectedOrder.cost || 0))}
+                  </p>
                 </div>
               </div>
 
@@ -529,30 +598,40 @@ export default function AdminOrdersPage() {
                 <Label className="text-muted-foreground">User</Label>
                 <div className="mt-1">
                   <p className="font-medium">{selectedOrder.user?.userName}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.user?.email}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedOrder.user?.email}
+                  </p>
                 </div>
               </div>
 
               <div className="border-t pt-4 grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">Created</Label>
-                  <p className="text-sm">{formatDate(selectedOrder.createdAt)}</p>
+                  <p className="text-sm">
+                    {formatDate(selectedOrder.createdAt)}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Updated</Label>
-                  <p className="text-sm">{formatDate(selectedOrder.updatedAt)}</p>
+                  <p className="text-sm">
+                    {formatDate(selectedOrder.updatedAt)}
+                  </p>
                 </div>
                 {selectedOrder.expiresAt && (
                   <div>
                     <Label className="text-muted-foreground">Expires</Label>
-                    <p className="text-sm">{formatDate(selectedOrder.expiresAt)}</p>
+                    <p className="text-sm">
+                      {formatDate(selectedOrder.expiresAt)}
+                    </p>
                   </div>
                 )}
               </div>
 
               <div className="border-t pt-4">
                 <Label className="text-muted-foreground">External ID</Label>
-                <p className="font-mono text-sm">{selectedOrder.externalId || "—"}</p>
+                <p className="font-mono text-sm">
+                  {selectedOrder.externalId || "—"}
+                </p>
               </div>
             </div>
           )}
@@ -589,8 +668,15 @@ export default function AdminOrdersPage() {
             <Button variant="outline" onClick={() => setRefundModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleRefund} disabled={actionLoading || !refundReason}>
-              {actionLoading ? <Spinner className="w-4 h-4" /> : "Confirm Refund"}
+            <Button
+              onClick={handleRefund}
+              disabled={actionLoading || !refundReason}
+            >
+              {actionLoading ? (
+                <Spinner className="w-4 h-4" />
+              ) : (
+                "Confirm Refund"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

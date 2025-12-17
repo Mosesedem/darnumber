@@ -23,7 +23,9 @@ export async function GET(req: NextRequest) {
     const startDate = sp.get("startDate")
       ? new Date(sp.get("startDate")!)
       : undefined;
-    const endDate = sp.get("endDate") ? new Date(sp.get("endDate")!) : undefined;
+    const endDate = sp.get("endDate")
+      ? new Date(sp.get("endDate")!)
+      : undefined;
 
     const where: any = {};
 
@@ -57,25 +59,29 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Calculate stats
-    const [depositsResult, withdrawalsResult, orderPaymentsResult, refundsResult] =
-      await Promise.all([
-        prisma.transaction.aggregate({
-          where: { type: "DEPOSIT", status: "COMPLETED" },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.aggregate({
-          where: { type: "WITHDRAWAL", status: "COMPLETED" },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.aggregate({
-          where: { type: "ORDER_PAYMENT", status: "COMPLETED" },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.aggregate({
-          where: { type: "REFUND", status: "COMPLETED" },
-          _sum: { amount: true },
-        }),
-      ]);
+    const [
+      depositsResult,
+      withdrawalsResult,
+      orderPaymentsResult,
+      refundsResult,
+    ] = await Promise.all([
+      prisma.transaction.aggregate({
+        where: { type: "DEPOSIT", status: "COMPLETED" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { type: "WITHDRAWAL", status: "COMPLETED" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { type: "ORDER_PAYMENT", status: "COMPLETED" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { type: "REFUND", status: "COMPLETED" },
+        _sum: { amount: true },
+      }),
+    ]);
 
     return json({
       ok: true,
