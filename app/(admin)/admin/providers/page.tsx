@@ -36,6 +36,7 @@ import {
   XCircle,
   Edit,
   RotateCcw,
+  Link,
 } from "lucide-react";
 
 const getHealthColor = (status: string) => {
@@ -300,7 +301,7 @@ export default function AdminProvidersPage() {
                 {actionLoading === `sync-${provider.id}` ? (
                   <Spinner className="w-4 h-4 mr-2" />
                 ) : (
-                  <Sync className="w-4 h-4 mr-2" />
+                  <Link className="w-4 h-4 mr-2" />
                 )}
                 Sync
               </Button>

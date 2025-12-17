@@ -310,13 +310,6 @@ export class AdminService {
           displayName: true,
           isActive: true,
           healthStatus: true,
-          _count: {
-            select: {
-              orders: {
-                where: { createdAt: { gte: startDate } },
-              },
-            },
-          },
         },
       }),
     ]);
