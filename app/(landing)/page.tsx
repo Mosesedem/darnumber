@@ -243,7 +243,7 @@ const Index = () => {
         <div className="absolute inset-0 bg-grid-pattern opacity-30"></div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 lg:py-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-            <div className="text-center lg:text-left order-2 lg:order-1">
+            <div className="text-center lg:text-left order-1 lg:order-1">
               <Badge className="mb-4 bg-primary/10 text-primary hover:bg-primary/10 border-primary/20">
                 🚀 Nigeria&apos;s #1 SMS Verification Service
               </Badge>
@@ -284,7 +284,7 @@ const Index = () => {
             </div>
 
             {/* Phone Mockup */}
-            <div className="relative order-1 lg:order-2 flex justify-center">
+            <div className="relative order-2 lg:order-2 flex justify-center">
               <WhatsAppVerification />
 
               {/* Decorative blurs */}
@@ -480,8 +480,8 @@ const Index = () => {
                 speed, clarity, and accessibility across devices.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-                <Button variant="secondary">Explore Dashboard</Button>
-                <Button variant="outline">Talk to sales</Button>
+                <Button variant="default">Explore Dashboard</Button>
+                <Button variant="outline">Contact Us</Button>
               </div>
             </div>
           </div>
