@@ -275,3 +275,34 @@
     @apply font-bold text-base text-foreground;
   }
 }
+
+/* Sonner toast overrides: better contrast + simple backgrounds */
+.toaster .toast {
+  background: var(--popover);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+}
+
+/* Description: ensure readable contrast */
+.toaster .toast p,
+.toaster .toast [data-description] {
+  color: var(--foreground);
+  opacity: 0.92;
+}
+
+/* Type accents via left border color */
+.toaster .toast[data-type="success"] {
+  border-left-color: oklch(0.72 0.17 145);
+}
+.toaster .toast[data-type="error"] {
+  border-left-color: var(--destructive);
+}
+.toaster .toast[data-type="warning"] {
+  border-left-color: oklch(0.82 0.16 85);
+}
+.toaster .toast[data-type="info"] {
+  border-left-color: oklch(0.62 0.13 236);
+}
