@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -133,23 +133,46 @@ export default function LandingPage() {
     { value: "24/7", label: "Customer Support" },
   ];
 
-  // Hero verification animation state
+  // Hero verification animation state (looping)
   const targetCode = "482916";
   const [enteredCode, setEnteredCode] = useState("");
-  const [verified, setVerified] = useState(false);
+  const [phase, setPhase] = useState<"typing" | "processing" | "verified">(
+    "typing"
+  );
+  const timersRef = useRef<number[]>([]);
+
   useEffect(() => {
-    let i = 0;
-    const typeTimer = setInterval(() => {
-      setEnteredCode((prev) => prev + targetCode[i]);
-      i += 1;
-      if (i >= targetCode.length) {
-        clearInterval(typeTimer);
-        setTimeout(() => setVerified(true), 800);
-      }
-    }, 350);
-    return () => clearInterval(typeTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const clearTimers = () => {
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+    };
+    clearTimers();
+
+    if (phase === "typing") {
+      setEnteredCode("");
+      // type each digit
+      targetCode.split("").forEach((ch, idx) => {
+        const t = window.setTimeout(() => {
+          setEnteredCode((prev) => prev + ch);
+          if (idx === targetCode.length - 1) {
+            const t2 = window.setTimeout(() => setPhase("processing"), 450);
+            timersRef.current.push(t2);
+          }
+        }, 220 * (idx + 1));
+        timersRef.current.push(t);
+      });
+    } else if (phase === "processing") {
+      const t = window.setTimeout(() => setPhase("verified"), 650);
+      timersRef.current.push(t);
+    } else if (phase === "verified") {
+      const t = window.setTimeout(() => setPhase("typing"), 2000);
+      timersRef.current.push(t);
+    }
+
+    return () => {
+      clearTimers();
+    };
+  }, [phase, targetCode]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -322,63 +345,116 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="relative">
-              <div className="relative z-10 bg-white rounded-2xl shadow-2xl p-6 md:p-8 mx-auto max-w-md border border-blue-100">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                      <MessageCircle className="w-6 h-6 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        WhatsApp Verification
-                      </p>
-                      <p className="text-sm text-gray-500">+234 XXX XXX XXXX</p>
-                    </div>
-                  </div>
-                  <Badge className="bg-green-100 text-green-700">Active</Badge>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                  <p className="text-sm text-gray-500 mb-3">
-                    Your verification code:
-                  </p>
-                  <div className="flex gap-2 justify-center" aria-live="polite">
-                    {Array.from({ length: targetCode.length }).map((_, i) => {
-                      const isFilled = i < enteredCode.length;
-                      const char = isFilled ? enteredCode[i] : "";
-                      return (
-                        <div
-                          key={i}
-                          className={`w-10 h-12 rounded-lg border-2 flex items-center justify-center text-xl font-bold transition-all duration-300 ${
-                            isFilled
-                              ? "bg-blue-50 border-blue-400 text-blue-700 scale-105"
-                              : "bg-white border-blue-200 text-blue-600"
-                          }`}
-                        >
-                          {char}
+              <div
+                className={`relative z-10 mx-auto max-w-md transition-all duration-500 ${
+                  phase === "verified"
+                    ? "ring-4 ring-green-300/40 rounded-[1.2rem]"
+                    : ""
+                }`}
+              >
+                {/* Typing / Processing Card */}
+                <div
+                  className={`absolute inset-0 ${
+                    phase === "verified"
+                      ? "opacity-0 -translate-y-2 scale-95 pointer-events-none"
+                      : "opacity-100 translate-y-0 scale-100"
+                  } transition-all duration-500 ease-out`}
+                  aria-hidden={phase === "verified"}
+                >
+                  <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 border border-blue-100">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                          <MessageCircle className="w-6 h-6 text-green-600" />
                         </div>
-                      );
-                    })}
+                        <div>
+                          <p className="font-semibold text-gray-900">WhatsApp Verification</p>
+                          <p className="text-sm text-gray-500">+234 XXX XXX XXXX</p>
+                        </div>
+                      </div>
+                      <Badge className="bg-green-100 text-green-700">Active</Badge>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                      <p className="text-sm text-gray-500 mb-3">Your verification code:</p>
+                      <div className="flex gap-2 justify-center" aria-live="polite">
+                        {Array.from({ length: targetCode.length }).map((_, i) => {
+                          const isFilled = i < enteredCode.length;
+                          const char = isFilled ? enteredCode[i] : "";
+                          return (
+                            <div
+                              key={i}
+                              className={`w-10 h-12 rounded-lg border-2 flex items-center justify-center text-xl font-bold transition-all duration-300 ${
+                                isFilled
+                                  ? "bg-blue-50 border-blue-400 text-blue-700 scale-105"
+                                  : "bg-white border-blue-200 text-blue-600"
+                              }`}
+                            >
+                              {char}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">{phase === "typing" ? "Receiving SMS…" : "Received code"}</span>
+                      <span
+                        className={`font-medium ${
+                          phase === "processing" ? "text-blue-600 animate-pulse" : "text-gray-400"
+                        }`}
+                      >
+                        {phase === "processing" ? "Processing" : "Awaiting"}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                {!verified ? (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Receiving SMS…</span>
-                    <span className="text-blue-600 font-medium animate-pulse">
-                      Processing
-                    </span>
+
+                {/* Verified Card (pop-in) */}
+                <div
+                  className={`relative ${
+                    phase === "verified"
+                      ? "opacity-100 translate-y-0 scale-100"
+                      : "opacity-0 translate-y-2 scale-95 pointer-events-none"
+                  } transition-all duration-500 ease-out`}
+                  aria-hidden={phase !== "verified"}
+                >
+                  <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 border border-green-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                          <Check className="w-6 h-6 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900">Verification Successful</p>
+                          <p className="text-sm text-gray-500">+234 XXX XXX XXXX</p>
+                        </div>
+                      </div>
+                      <Badge className="bg-green-600 text-white">Verified</Badge>
+                    </div>
+                    <div className="bg-green-50 rounded-xl p-5 mb-2">
+                      <p className="text-sm text-green-700 mb-2">Code accepted:</p>
+                      <div className="flex gap-2 justify-center">
+                        {targetCode.split("").map((d, i) => (
+                          <div
+                            key={i}
+                            className="w-10 h-12 rounded-lg border-2 border-green-300 bg-white flex items-center justify-center text-xl font-bold text-green-700"
+                          >
+                            {d}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 text-center">Looping demo — new code incoming…</p>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Received just now</span>
-                    <span className="text-green-600 font-semibold flex items-center gap-1">
-                      <Check className="w-4 h-4" /> Verified
-                    </span>
-                  </div>
-                )}
+                </div>
+              </div>
               </div>
               {/* Decorative elements */}
               <div className="absolute top-0 right-0 -translate-y-1/4 translate-x-1/4 w-72 h-72 bg-purple-200 rounded-full blur-3xl opacity-40"></div>
-              <div className="absolute bottom-0 left-0 translate-y-1/4 -translate-x-1/4 w-72 h-72 bg-blue-200 rounded-full blur-3xl opacity-40"></div>
+                            <div className="absolute bottom-0 left-0 translate-y-1/4 -translate-x-1/4 w-72 h-72 bg-blue-200 rounded-full blur-3xl opacity-40"></div>
+            </div>
+          </div>
+        </div>
+      </section>
             </div>
           </div>
         </div>
