@@ -137,7 +137,7 @@ const Index = () => {
       <NavBar />
       {/* Hero Section */}
       <section
-        className="relative overflow-hidden top-6"
+        className="relative overflow-hidden top-8"
         style={{ background: "var(--linear-hero)" }}
       >
         <div className="absolute inset-0 bg-grid-pattern opacity-30"></div>
