@@ -277,6 +277,7 @@ model Order {
   externalId  String?  @unique @map("external_id") // The ID from the provider (e.g., SMS-Man activation ID)
   phoneNumber String?  @map("phone_number")
   smsCode     String?  @map("sms_code")
+  smsMessage  String?  @map("sms_message") // Full SMS message text
   cost        Decimal? @db.Decimal(15, 4) // The actual cost from the provider after purchase
 
   // Pricing & Transaction

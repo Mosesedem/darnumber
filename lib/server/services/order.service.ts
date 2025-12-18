@@ -270,9 +270,21 @@ export class OrderService {
 
   async getOrderStatus(orderId: string) {
     console.log("[OrderService] getOrderStatus ->", { orderId });
+
     const cached = await redis.getOrderStatus(orderId);
     if (cached) {
       console.log("[OrderService] cache hit", cached);
+      // If status is WAITING_FOR_SMS, try to opportunistically refresh code
+      if (cached.status === "WAITING_FOR_SMS" && !cached.smsCode) {
+        await this.tryFetchAndUpdateSmsCode(
+          orderId,
+          cached.provider,
+          cached.externalId
+        );
+        // Re-fetch after possible update
+        const refreshed = await redis.getOrderStatus(orderId);
+        if (refreshed) return refreshed;
+      }
       return cached;
     }
 
@@ -291,6 +303,8 @@ export class OrderService {
         country: true,
         providerId: true,
         externalId: true,
+        smsCode: true,
+        smsMessage: true,
       },
     });
     if (!order) return null;
@@ -330,6 +344,41 @@ export class OrderService {
         "[OrderService] TextVerified details refresh failed",
         e instanceof Error ? e.message : String(e)
       );
+    }
+
+    // If status is WAITING_FOR_SMS and no code, try to fetch code from provider
+    if (order.status === "WAITING_FOR_SMS" && !order.smsCode) {
+      await this.tryFetchAndUpdateSmsCode(
+        order.id,
+        order.providerId,
+        order.externalId
+      );
+      // Re-fetch after possible update
+      const refreshed = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          orderNumber: true,
+          phoneNumber: true,
+          status: true,
+          expiresAt: true,
+          createdAt: true,
+          finalPrice: true,
+          currency: true,
+          serviceCode: true,
+          country: true,
+          providerId: true,
+          externalId: true,
+          smsCode: true,
+        },
+      });
+      if (refreshed) {
+        const payload = { ...refreshed, provider: refreshed.providerId };
+        delete (payload as any).providerId;
+        await redis.setOrderStatus(orderId, payload, 300);
+        console.log("[OrderService] getOrderStatus payload", payload);
+        return payload;
+      }
     }
 
     // Auto-expire orders that have passed their expiry window
@@ -411,6 +460,226 @@ export class OrderService {
     await redis.setOrderStatus(orderId, payload, 300);
     console.log("[OrderService] getOrderStatus payload", payload);
     return payload;
+  }
+
+  /**
+   * Try to fetch and update the SMS code for an order from the provider.
+   */
+  private async tryFetchAndUpdateSmsCode(
+    orderId: string,
+    providerId: string,
+    externalId?: string | null
+  ) {
+    if (!externalId) return;
+    let code: string | undefined;
+    let message: string | undefined;
+    let status: string | undefined;
+    try {
+      if (providerId === "textverified") {
+        const tv = new TextVerifiedService();
+        // Fetch verification details, look for code
+        const detailsUrl = externalId;
+        console.log(
+          "[tryFetchAndUpdateSmsCode] Fetching TextVerified:",
+          detailsUrl
+        );
+        // Try fetching messages from /messages endpoint
+        const messagesUrl = `${detailsUrl}/messages`;
+        console.log(
+          "[tryFetchAndUpdateSmsCode] Also trying messages URL:",
+          messagesUrl
+        );
+        let res = await fetch(messagesUrl, {
+          headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
+        });
+        if (!res.ok) {
+          // Fallback to details URL
+          console.log(
+            "[tryFetchAndUpdateSmsCode] Messages URL failed, trying details URL"
+          );
+          res = await fetch(detailsUrl, {
+            headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
+          });
+        }
+        console.log(
+          "[tryFetchAndUpdateSmsCode] TextVerified fetch status:",
+          res.status
+        );
+        if (res.ok) {
+          const data = await res.json();
+          console.log(
+            "[tryFetchAndUpdateSmsCode] TextVerified response:",
+            JSON.stringify(data, null, 2)
+          );
+          // TextVerified: code may be in data.messages[0].parsed_code or message content
+          let foundCode = null;
+          let foundMessage = null;
+          const messages = data?.data?.messages || data?.messages || [];
+          if (Array.isArray(messages) && messages.length > 0) {
+            for (const msg of messages) {
+              if (msg.parsed_code && typeof msg.parsed_code === "string") {
+                foundCode = msg.parsed_code;
+                foundMessage = msg.message || msg.parsed_code;
+                break;
+              } else if (
+                typeof msg.message === "string" &&
+                /\d{3,}/.test(msg.message)
+              ) {
+                foundCode = (msg.message.match(/\d{3,}/) || [])[0];
+                foundMessage = msg.message;
+                break;
+              }
+            }
+          }
+          if (!foundCode && data?.code && /\d{3,}/.test(data.code)) {
+            foundCode = data.code.match(/\d{3,}/)[0];
+            foundMessage = data.code;
+          }
+          if (!foundCode && data?.sms && /\d{3,}/.test(data.sms)) {
+            foundCode = data.sms.match(/\d{3,}/)[0];
+            foundMessage = data.sms;
+          }
+          if (!foundCode && data?.data?.code && /\d{3,}/.test(data.data.code)) {
+            foundCode = data.data.code.match(/\d{3,}/)[0];
+            foundMessage = data.data.code;
+          }
+          if (!foundCode && data?.data?.sms && /\d{3,}/.test(data.data.sms)) {
+            foundCode = data.data.sms.match(/\d{3,}/)[0];
+            foundMessage = data.data.sms;
+          }
+          if (
+            !foundCode &&
+            data?.parsed_code &&
+            /\d{3,}/.test(data.parsed_code)
+          ) {
+            foundCode = data.parsed_code.match(/\d{3,}/)[0];
+            foundMessage = data.parsed_code;
+          }
+          if (foundCode) {
+            code = foundCode;
+            message = foundMessage;
+            status = "COMPLETED";
+            console.log(
+              "[tryFetchAndUpdateSmsCode] Found code in TextVerified:",
+              code
+            );
+          } else {
+            console.log(
+              "[tryFetchAndUpdateSmsCode] No code found in TextVerified response"
+            );
+          }
+        } else {
+          console.log(
+            "[tryFetchAndUpdateSmsCode] TextVerified fetch failed:",
+            res.status,
+            await res.text()
+          );
+        }
+      } else if (providerId === "sms-man") {
+        // SMSMan: poll for code
+        const apiKey = process.env.SMSMAN_API_KEY;
+        if (!apiKey) {
+          console.log("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
+          return;
+        }
+        // externalId is request_id
+        const url = `https://api.sms-man.com/control/get-sms?token=${apiKey}&request_id=${externalId}`;
+        console.log(
+          "[tryFetchAndUpdateSmsCode] Fetching SMS-Man:",
+          url.replace(apiKey, "***")
+        );
+        const res = await fetch(url);
+        console.log(
+          "[tryFetchAndUpdateSmsCode] SMS-Man fetch status:",
+          res.status
+        );
+        if (res.ok) {
+          const data = await res.json();
+          console.log(
+            "[tryFetchAndUpdateSmsCode] SMS-Man response:",
+            JSON.stringify(data, null, 2)
+          );
+          let foundSms = null;
+          if (
+            data.sms_code &&
+            typeof data.sms_code === "string" &&
+            /\d{3,}/.test(data.sms_code)
+          ) {
+            foundSms = data.sms_code;
+          } else if (
+            data.sms &&
+            typeof data.sms === "string" &&
+            /\d{3,}/.test(data.sms)
+          ) {
+            foundSms = data.sms;
+          } else if (
+            data.message &&
+            typeof data.message === "string" &&
+            /\d{3,}/.test(data.message)
+          ) {
+            foundSms = data.message;
+          } else if (
+            data.code &&
+            typeof data.code === "string" &&
+            /\d{3,}/.test(data.code)
+          ) {
+            foundSms = data.code;
+          }
+          if (foundSms) {
+            code = (foundSms.match(/\d{3,}/) || [])[0];
+            message = foundSms;
+            status = "COMPLETED";
+            console.log(
+              "[tryFetchAndUpdateSmsCode] Found code in SMS-Man:",
+              code
+            );
+          } else {
+            console.log(
+              "[tryFetchAndUpdateSmsCode] No code found in SMS-Man response"
+            );
+          }
+        } else {
+          console.log(
+            "[tryFetchAndUpdateSmsCode] SMS-Man fetch failed:",
+            res.status,
+            await res.text()
+          );
+        }
+      }
+      if (code && status) {
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { smsCode: code, smsMessage: message, status: status as any },
+        });
+        // Also update cache
+        const updated = await prisma.order.findUnique({
+          where: { id: orderId },
+          select: {
+            id: true,
+            orderNumber: true,
+            phoneNumber: true,
+            status: true,
+            expiresAt: true,
+            createdAt: true,
+            finalPrice: true,
+            currency: true,
+            serviceCode: true,
+            country: true,
+            providerId: true,
+            externalId: true,
+            smsCode: true,
+            smsMessage: true,
+          },
+        });
+        if (updated) {
+          const payload = { ...updated, provider: updated.providerId };
+          delete (payload as any).providerId;
+          await redis.setOrderStatus(orderId, payload, 300);
+        }
+      }
+    } catch (e) {
+      console.warn(`[OrderService] tryFetchAndUpdateSmsCode failed`, e);
+    }
   }
 
   async refundOrder(
@@ -814,7 +1083,7 @@ export class TextVerifiedService {
   private servicesCacheExpiry: number = 0;
 
   // Generate bearer token using X-API-KEY and X-API-USERNAME
-  private async getBearerToken(): Promise<string> {
+  public async getBearerToken(): Promise<string> {
     // Check if we have a valid cached token
     if (this.bearerToken && Date.now() < this.tokenExpiry) {
       console.log("[TextVerified] Using cached bearer token");

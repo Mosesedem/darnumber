@@ -35,6 +35,7 @@ export default function OrderDetailPage() {
     finalPrice: number;
     phoneNumber?: string;
     smsCode?: string;
+    smsMessage?: string;
     status: string;
     createdAt: string;
     completedAt?: string;
@@ -141,7 +142,7 @@ export default function OrderDetailPage() {
 
     fetchOrder();
 
-    // Poll for updates every 10 seconds
+    // Poll for updates every 5 seconds
     const interval = setInterval(() => {
       // Only fetch if we don't have an order yet, or if it's in an active status
       if (
@@ -150,11 +151,21 @@ export default function OrderDetailPage() {
       ) {
         fetchOrder();
       }
-    }, 10000);
+    }, 5000);
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, order?.status]);
+
+  // Notify when order is completed
+  useEffect(() => {
+    if (order?.status === "COMPLETED" && order.smsCode) {
+      toast.success(
+        "Order completed!",
+        `Your verification code is ${order.smsCode}`
+      );
+    }
+  }, [order?.status, order?.smsCode]);
 
   const handleCancelClick = () => {
     setShowCancelDialog(true);
@@ -285,18 +296,18 @@ export default function OrderDetailPage() {
           </div>
         )}
 
-        {/* SMS Code */}
-        {order.smsCode && (
+        {/* SMS Message */}
+        {order.smsMessage && (
           <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg mb-4 border border-green-200 dark:border-green-900">
             <div className="flex justify-between items-start mb-2">
               <p className="text-sm font-medium text-green-900 dark:text-green-100">
-                Verification Code
+                SMS Message
               </p>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() =>
-                  copyToClipboard(order.smsCode!, "Verification code")
+                  copyToClipboard(order.smsMessage!, "SMS message")
                 }
                 className="h-8 px-2 hover:bg-green-100 dark:hover:bg-green-900"
               >
@@ -316,9 +327,44 @@ export default function OrderDetailPage() {
                 </svg>
               </Button>
             </div>
-            <p className="text-3xl font-bold text-green-600 dark:text-green-400 font-mono">
-              {order.smsCode}
+            <p className="text-lg text-green-800 dark:text-green-200 mb-2">
+              {order.smsMessage}
             </p>
+            {order.smsCode && (
+              <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
+                <div className="flex justify-between items-center">
+                  <p className="text-sm font-medium text-green-900 dark:text-green-100">
+                    Extracted Code
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      copyToClipboard(order.smsCode!, "Verification code")
+                    }
+                    className="h-8 px-2 hover:bg-green-100 dark:hover:bg-green-900"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </Button>
+                </div>
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400 font-mono mt-1">
+                  {order.smsCode}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
