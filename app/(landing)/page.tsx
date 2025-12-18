@@ -137,8 +137,8 @@ const Index = () => {
         className="relative overflow-hidden top-8"
         style={{ background: "var(--linear-hero)" }}
       >
-        <div className="absolute inset-0 bg-grid-pattern opacity-30"></div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 lg:py-32">
+        <div className="absolute inset-0 bg-grid-pattern opacity-30 pointer-events-none"></div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 lg:py-32 relative z-10">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <div className="text-center lg:text-left order-1 lg:order-1">
               <Badge className="mb-4 bg-primary/10 text-primary hover:bg-primary/10 border-primary/20">
@@ -362,11 +362,11 @@ const Index = () => {
                 and receive your code with industry-leading delivery speed.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-                <Button>
-                  <Link href="/signup"> Create Account</Link>
+                <Button asChild>
+                  <Link href="/signup">Create Account</Link>
                 </Button>
-                <Button variant="outline">
-                  <Link href="/#how-it-works"> How it works</Link>
+                <Button variant="outline" asChild>
+                  <Link href="/#how-it-works">How it works</Link>
                 </Button>
               </div>
             </div>
@@ -389,11 +389,11 @@ const Index = () => {
                 speed, clarity, and accessibility across devices.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-                <Button variant="default">
+                <Button variant="default" asChild>
                   <Link href="/dashboard">Explore Dashboard</Link>
                 </Button>
-                <Button variant="outline">
-                  <Link href="/contact"> Contact Us</Link>
+                <Button variant="outline" asChild>
+                  <Link href="/contact">Contact Us</Link>
                 </Button>
               </div>
             </div>
@@ -461,9 +461,16 @@ const Index = () => {
             verification needs. Sign up today and get your first verification
             free!
           </p>
-          <Button size="lg" variant="secondary" className="text-base px-8">
-            <Link href="/signup">Create Free Account</Link>
-            <ArrowRight className="w-5 h-5 ml-2" />
+          <Button
+            size="lg"
+            variant="secondary"
+            className="text-base px-8"
+            asChild
+          >
+            <Link href="/signup">
+              Create Free Account
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </Link>
           </Button>
         </div>
       </section>
