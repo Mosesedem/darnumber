@@ -56,11 +56,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            {error}
-          </Alert>
-        )}
+        {error && <p className="mb-4 text-red-700">{error}</p>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
