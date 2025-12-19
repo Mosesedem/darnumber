@@ -85,12 +85,10 @@ AWS_SECRET_ACCESS_KEY=your-secret-key
 AWS_SES_FROM_EMAIL=noreply@yourdomain.com
 AWS_CLOUDWATCH_LOG_GROUP=/darnumber/production
 
-# Email (AWS SES SMTP)
-SMTP_HOST=email-smtp.us-east-1.amazonaws.com
-SMTP_PORT=587
-SMTP_USER=your-smtp-user
-SMTP_PASSWORD=your-smtp-password
-SMTP_FROM=noreply@yourdomain.com
+# Email (Resend)
+RESEND_API_KEY=your-resend-api-key
+EMAIL_FROM=DarNumber <noreply@darnumber.com>
+ADMIN_EMAIL=admin@darnumber.com
 
 # Application
 NODE_ENV=development
@@ -216,13 +214,13 @@ pnpm prisma migrate reset
 
 ### AWS Services
 
-#### SES (Email)
+### Email (Resend)
 
 ```bash
-# 1. Verify domain or email in SES
-# 2. Request production access (remove sandbox)
-# 3. Create SMTP credentials
-# 4. Add credentials to backend/.env
+# 1. Sign up at https://resend.com
+# 2. Verify your domain (darnumber.com)
+# 3. Create an API key
+# 4. Add RESEND_API_KEY to environment variables
 ```
 
 #### CloudWatch (Logs)

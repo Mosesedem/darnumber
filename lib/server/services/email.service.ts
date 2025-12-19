@@ -1,32 +1,21 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 // Email configuration from environment variables
-const EMAIL_HOST = process.env.EMAIL_HOST || "smtp.gmail.com";
-const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || "587", 10);
-const EMAIL_USER = process.env.EMAIL_USER || "";
-const EMAIL_PASS = process.env.EMAIL_PASS || "";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM =
   process.env.EMAIL_FROM || "DarNumber <noreply@darnumber.com>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-// Create transporter
-const createTransporter = () => {
-  if (!EMAIL_USER || !EMAIL_PASS) {
+// Create Resend client
+const createResendClient = () => {
+  if (!RESEND_API_KEY) {
     console.warn(
-      "[EmailService] Email credentials not configured. Emails will be logged to console."
+      "[EmailService] Resend API key not configured. Emails will be logged to console."
     );
     return null;
   }
 
-  return nodemailer.createTransport({
-    host: EMAIL_HOST,
-    port: EMAIL_PORT,
-    secure: EMAIL_PORT === 465,
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS,
-    },
-  });
+  return new Resend(RESEND_API_KEY);
 };
 
 interface SendEmailOptions {
@@ -37,21 +26,13 @@ interface SendEmailOptions {
 }
 
 /**
- * Send an email using NodeMailer
+ * Send an email using Resend
  */
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
-  const transporter = createTransporter();
+  const resend = createResendClient();
 
-  const mailOptions = {
-    from: EMAIL_FROM,
-    to: options.to,
-    subject: options.subject,
-    html: options.html,
-    text: options.text || options.html.replace(/<[^>]*>/g, ""),
-  };
-
-  // If no transporter (credentials not configured), log to console
-  if (!transporter) {
+  // If no resend client (API key not configured), log to console
+  if (!resend) {
     console.log("\n========== EMAIL (DEV MODE) ==========");
     console.log(`To: ${options.to}`);
     console.log(`Subject: ${options.subject}`);
@@ -61,7 +42,19 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   }
 
   try {
-    await transporter.sendMail(mailOptions);
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to: [options.to],
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
+    });
+
+    if (error) {
+      console.error("[EmailService] Failed to send email:", error);
+      return false;
+    }
+
     console.log(`[EmailService] Email sent successfully to ${options.to}`);
     return true;
   } catch (error) {
@@ -210,7 +203,7 @@ export async function sendContactNotificationToAdmin(data: {
   message: string;
   ticketId: string;
 }): Promise<boolean> {
-  const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+  const adminEmail = process.env.ADMIN_EMAIL;
 
   if (!adminEmail) {
     console.warn(
