@@ -8,11 +8,6 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * A robust fetch wrapper that handles retries with exponential backoff for network errors.
- * @param url The URL to fetch.
- * @param options The fetch options.
- * @param retries Number of retries to attempt.
- * @param backoff Initial backoff delay in ms.
- * @returns The fetch Response object.
  */
 async function fetchWithRetry(
   url: string,
@@ -52,7 +47,7 @@ interface CreateOrderInput {
   userId: string;
   serviceCode: string;
   country: string;
-  price: number; // Price is now required, fetched on the client for TextVerified
+  price: number;
   preferredProvider?: string;
 }
 
@@ -79,8 +74,6 @@ export class OrderService {
     const selectedProvider = providers[0];
 
     // 3. Validate Price and Balance
-    // For TextVerified, the price is passed in. For others, we might calculate it here.
-    // This logic assumes the passed 'price' is the final, correct price.
     const finalPrice = new Prisma.Decimal(price);
     if (user.balance.lt(finalPrice)) {
       throw new Error("Insufficient balance");
@@ -88,13 +81,11 @@ export class OrderService {
 
     // 4. Create Order and Transaction in a single DB operation
     const order = await prisma.$transaction(async (tx) => {
-      // Debit user's balance
       await tx.user.update({
         where: { id: userId },
         data: { balance: { decrement: finalPrice } },
       });
 
-      // Create a transaction record for the payment
       const transaction = await tx.transaction.create({
         data: {
           userId,
@@ -111,7 +102,6 @@ export class OrderService {
         },
       });
 
-      // Create the order record
       const newOrder = await tx.order.create({
         data: {
           userId,
@@ -119,17 +109,17 @@ export class OrderService {
           serviceCode,
           country,
           price: finalPrice,
-          finalPrice: finalPrice, // Final price (same as price for now, could be different with discounts)
+          finalPrice: finalPrice,
           transactionId: transaction.id,
-          status: "PROCESSING", // Status is now 'PROCESSING'
-          expiresAt: new Date(Date.now() + 20 * 60 * 1000), // 20-minute expiry
+          status: "PROCESSING",
+          expiresAt: new Date(Date.now() + 20 * 60 * 1000),
         },
       });
 
       return newOrder;
     });
 
-    // 5. Request number from the provider (outside the main DB transaction)
+    // 5. Request number from the provider
     try {
       const providerService = this.getProviderService(selectedProvider.name);
       console.log(
@@ -139,10 +129,9 @@ export class OrderService {
       const providerOrder = await providerService.requestNumber(
         serviceCode,
         country,
-        order.id // Pass orderId for logging and context
+        order.id
       );
 
-      // Update order with provider details
       const updatedOrder = await prisma.order.update({
         where: { id: order.id },
         data: {
@@ -166,7 +155,6 @@ export class OrderService {
         `[OrderService] Provider request failed for order ${order.id}. Refunding...`,
         e
       );
-      // If provider fails, refund the order
       await this.refundOrder(order.id, "PROVIDER_FAILURE");
       throw new Error("Failed to secure a number from the provider.");
     }
@@ -190,16 +178,13 @@ export class OrderService {
     country: string,
     preferred?: string
   ) {
-    // Use hardcoded providers instead of DB queries
     const availableProviders: Array<{
       id: string;
       name: string;
       priority: number;
     }> = [];
 
-    // Check if SMS-Man (Lion) supports this country
     if (preferred === "sms-man" || !preferred) {
-      // SMS-Man supports all countries globally
       availableProviders.push({
         id: "sms-man",
         name: "sms-man",
@@ -207,7 +192,6 @@ export class OrderService {
       });
     }
 
-    // Check if TextVerified (Panda) supports this country
     if (country === "US" && (preferred === "textverified" || !preferred)) {
       availableProviders.push({
         id: "textverified",
@@ -216,12 +200,10 @@ export class OrderService {
       });
     }
 
-    // If a preferred provider was specified but not added, return empty
     if (preferred && availableProviders.length === 0) {
       return [];
     }
 
-    // Sort by priority (higher priority first)
     return availableProviders.sort((a, b) => b.priority - a.priority);
   }
 
@@ -274,14 +256,12 @@ export class OrderService {
     const cached = await redis.getOrderStatus(orderId);
     if (cached) {
       console.log("[OrderService] cache hit", cached);
-      // If status is WAITING_FOR_SMS, try to opportunistically refresh code
       if (cached.status === "WAITING_FOR_SMS" && !cached.smsCode) {
         await this.tryFetchAndUpdateSmsCode(
           orderId,
           cached.provider,
           cached.externalId
         );
-        // Re-fetch after possible update
         const refreshed = await redis.getOrderStatus(orderId);
         if (refreshed) return refreshed;
       }
@@ -309,7 +289,7 @@ export class OrderService {
     });
     if (!order) return null;
 
-    // Opportunistic refresh for TextVerified: if we have an href and no number yet
+    // Opportunistic refresh for TextVerified
     try {
       if (
         order.providerId === "textverified" &&
@@ -331,7 +311,6 @@ export class OrderService {
                   : order.status,
             },
           });
-          // Update local snapshot
           order.phoneNumber = details.number;
           order.status =
             details.state === "verificationCompleted"
@@ -346,14 +325,12 @@ export class OrderService {
       );
     }
 
-    // If status is WAITING_FOR_SMS and no code, try to fetch code from provider
     if (order.status === "WAITING_FOR_SMS" && !order.smsCode) {
       await this.tryFetchAndUpdateSmsCode(
         order.id,
         order.providerId,
         order.externalId
       );
-      // Re-fetch after possible update
       const refreshed = await prisma.order.findUnique({
         where: { id: orderId },
         select: {
@@ -381,7 +358,7 @@ export class OrderService {
       }
     }
 
-    // Auto-expire orders that have passed their expiry window
+    // Auto-expire orders
     if (
       order.expiresAt &&
       new Date(order.expiresAt).getTime() < Date.now() &&
@@ -390,7 +367,6 @@ export class OrderService {
         order.status === "WAITING_FOR_SMS")
     ) {
       try {
-        // Attempt provider cancellation before refund
         try {
           if (order.externalId) {
             const providerService = this.getProviderService(order.providerId);
@@ -462,9 +438,6 @@ export class OrderService {
     return payload;
   }
 
-  /**
-   * Try to fetch and update the SMS code for an order from the provider.
-   */
   private async tryFetchAndUpdateSmsCode(
     orderId: string,
     providerId: string,
@@ -477,13 +450,11 @@ export class OrderService {
     try {
       if (providerId === "textverified") {
         const tv = new TextVerifiedService();
-        // Fetch verification details, look for code
         const detailsUrl = externalId;
         console.log(
           "[tryFetchAndUpdateSmsCode] Fetching TextVerified:",
           detailsUrl
         );
-        // Try fetching messages from /messages endpoint
         const messagesUrl = `${detailsUrl}/messages`;
         console.log(
           "[tryFetchAndUpdateSmsCode] Also trying messages URL:",
@@ -493,7 +464,6 @@ export class OrderService {
           headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
         });
         if (!res.ok) {
-          // Fallback to details URL
           console.log(
             "[tryFetchAndUpdateSmsCode] Messages URL failed, trying details URL"
           );
@@ -511,7 +481,6 @@ export class OrderService {
             "[tryFetchAndUpdateSmsCode] TextVerified response:",
             JSON.stringify(data, null, 2)
           );
-          // TextVerified: code may be in data.messages[0].parsed_code or message content
           let foundCode = null;
           let foundMessage = null;
           const messages = data?.data?.messages || data?.messages || [];
@@ -576,13 +545,11 @@ export class OrderService {
           );
         }
       } else if (providerId === "sms-man") {
-        // SMSMan: poll for code
         const apiKey = process.env.SMSMAN_API_KEY;
         if (!apiKey) {
           console.log("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
           return;
         }
-        // externalId is request_id
         const url = `https://api.sms-man.com/control/get-sms?token=${apiKey}&request_id=${externalId}`;
         console.log(
           "[tryFetchAndUpdateSmsCode] Fetching SMS-Man:",
@@ -651,7 +618,6 @@ export class OrderService {
           where: { id: orderId },
           data: { smsCode: code, smsMessage: message, status: status as any },
         });
-        // Also update cache
         const updated = await prisma.order.findUnique({
           where: { id: orderId },
           select: {
@@ -703,7 +669,6 @@ export class OrderService {
         return;
       }
 
-      // Only refund if the order is in a refundable state
       if (
         order.status === "REFUNDED" ||
         order.status === "COMPLETED" ||
@@ -715,7 +680,6 @@ export class OrderService {
         return;
       }
 
-      // Update order status based on reason
       let newStatus: "REFUNDED" | "CANCELLED" | "FAILED" | "EXPIRED" =
         "REFUNDED";
       if (reason === "USER_CANCELLED") newStatus = "CANCELLED";
@@ -727,14 +691,12 @@ export class OrderService {
         data: { status: newStatus },
       });
 
-      // Refund the money
       const newBalance = order.user.balance.add(order.price);
       await tx.user.update({
         where: { id: order.userId },
         data: { balance: { increment: order.price } },
       });
 
-      // Create a refund transaction
       await tx.transaction.create({
         data: {
           userId: order.userId,
@@ -742,7 +704,7 @@ export class OrderService {
           transactionNumber: `REF-${Date.now()}-${order.id.slice(0, 4)}`,
           type: "REFUND",
           amount: order.price,
-          currency: "NGN", // Align with system default and order currency
+          currency: "NGN",
           balanceBefore: order.user.balance,
           balanceAfter: newBalance,
           status: "COMPLETED",
@@ -770,7 +732,6 @@ export class OrderService {
       throw new Error(`Order is in a non-cancellable state: ${order.status}`);
     }
 
-    // Cancel the number with the provider if we have externalId
     try {
       if (order.externalId) {
         const providerService = this.getProviderService(order.providerId);
@@ -830,7 +791,7 @@ export class OrderService {
   }
 }
 
-// SMS-Man API v2.0 Integration - Simplified and Optimized
+// SMS-Man Service
 export class SMSManService {
   private apiUrl = "https://api.sms-man.com/control";
   private apiKey = process.env.SMSMAN_API_KEY || "";
@@ -843,7 +804,6 @@ export class SMSManService {
         throw new Error("SMS-Man API key not configured");
       }
 
-      // Fetch all data in parallel for better performance
       const [countriesRes, applicationsRes, pricesRes] = await Promise.all([
         fetch(`${this.apiUrl}/countries?token=${this.apiKey}`),
         fetch(`${this.apiUrl}/applications?token=${this.apiKey}`),
@@ -860,7 +820,6 @@ export class SMSManService {
         pricesRes.json(),
       ]);
 
-      // Convert API objects to arrays - SMS-Man returns {id: {data}} format
       const countries = Object.values(countriesData);
       const applications = Object.values(applicationsData);
 
@@ -868,7 +827,6 @@ export class SMSManService {
         `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`
       );
 
-      // Create lookup maps for fast processing
       const countriesMap = new Map();
       const applicationsMap = new Map();
 
@@ -886,7 +844,6 @@ export class SMSManService {
         });
       });
 
-      // Process pricing data efficiently
       const services: any[] = [];
 
       Object.entries(pricesData).forEach(
@@ -901,8 +858,6 @@ export class SMSManService {
               const application = applicationsMap.get(applicationId);
               if (!application) return;
 
-              // SMS-Man prices are in Russian Rubles (RUB)
-              // Return raw RUB price - conversion RUB→USD→NGN happens in frontend
               const priceRUB = parseFloat(serviceData.cost);
 
               services.push({
@@ -910,7 +865,7 @@ export class SMSManService {
                 name: application.name,
                 country: country.code,
                 countryName: country.title,
-                price: priceRUB, // Raw RUB price
+                price: priceRUB,
                 count: serviceData.count,
                 providerId: "sms-man",
                 currency: "RUB",
@@ -960,7 +915,6 @@ export class SMSManService {
       throw new Error("SMS-Man API key not configured");
     }
 
-    // This needs to be reversed; we get a service code like 'wa' and need the ID
     const applications = await this.getApplications();
     const app = applications.find((a) => a.code === serviceCode);
     if (!app) {
@@ -984,7 +938,7 @@ export class SMSManService {
     return {
       id: data.request_id.toString(),
       phoneNumber: data.number,
-      cost: data.cost, // Assuming the API returns a cost
+      cost: data.cost,
     };
   }
 
@@ -997,15 +951,14 @@ export class SMSManService {
     const data = await res.json();
     const applications = Object.values(data).map((a: any) => ({
       id: a.id,
-      code: a.slug || a.code, // 'slug' is often the code we need
+      code: a.slug || a.code,
     }));
 
-    await redis.set(cacheKey, JSON.stringify(applications), 60 * 60 * 24); // Cache for 24 hours
+    await redis.set(cacheKey, JSON.stringify(applications), 60 * 60 * 24);
     return applications;
   }
 
   private getCountryIdFromCode(countryCode: string): string {
-    // Reverse mapping from ISO code to SMS-Man country ID
     const codeMap: Record<string, string> = {
       RU: "0",
       UA: "1",
@@ -1068,11 +1021,11 @@ export class SMSManService {
       MX: "58",
       NG: "59",
     };
-    return codeMap[countryCode] || "12"; // Default to US
+    return codeMap[countryCode] || "12";
   }
 }
 
-// TextVerified provider adapter - USA only
+// TextVerified Service
 export class TextVerifiedService {
   private apiUrl = "https://www.textverified.com/api/pub/v2";
   private apiKey = process.env.TEXTVERIFIED_API_KEY || "";
@@ -1082,9 +1035,7 @@ export class TextVerifiedService {
   private servicesCache: any[] | null = null;
   private servicesCacheExpiry: number = 0;
 
-  // Generate bearer token using X-API-KEY and X-API-USERNAME
   public async getBearerToken(): Promise<string> {
-    // Check if we have a valid cached token
     if (this.bearerToken && Date.now() < this.tokenExpiry) {
       console.log("[TextVerified] Using cached bearer token");
       return this.bearerToken;
@@ -1109,47 +1060,25 @@ export class TextVerifiedService {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
-        `Failed to generate bearer token: ${response.status} - ${errorText}`
+        `Failed to authenticate with TextVerified: ${response.status} - ${errorText}`
       );
     }
 
     const data = await response.json();
-    this.bearerToken = data.token || data.bearerToken || data.access_token;
+    this.bearerToken = data.token || data.access_token || data.bearerToken;
 
     if (!this.bearerToken) {
-      throw new Error("Bearer token not found in response");
+      throw new Error("No bearer token received from TextVerified");
     }
 
-    // Cache token for 50 minutes (assuming 60min expiry)
-    this.tokenExpiry = Date.now() + 50 * 60 * 1000;
-    console.log("[TextVerified] ✓ Bearer token generated successfully");
+    // Token expires in 1 hour (3600 seconds)
+    this.tokenExpiry = Date.now() + 3600 * 1000;
+    console.log("[TextVerified] Bearer token generated successfully");
 
     return this.bearerToken;
   }
 
-  async cancelVerification(verificationId: string): Promise<void> {
-    // Support passing full href or just the ID
-    const id = verificationId.startsWith("http")
-      ? verificationId.split("/").pop() || verificationId
-      : verificationId;
-    const bearerToken = await this.getBearerToken();
-    const url = `${this.apiUrl}/verifications/${id}`;
-    const res = await fetchWithRetry(url, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${bearerToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Failed to cancel TextVerified verification: ${text}`);
-    }
-    console.log(`[TextVerified] Cancelled verification ${id}`);
-  }
-
   async getAvailableServices() {
-    // Check cache first (cache for 1 hour)
     if (this.servicesCache && Date.now() < this.servicesCacheExpiry) {
       console.log("[TextVerified] Using cached services list");
       return this.servicesCache;
@@ -1160,10 +1089,8 @@ export class TextVerifiedService {
     console.log("╚═══════════════════════════════════════════════╝");
 
     try {
-      // Generate bearer token
       const bearerToken = await this.getBearerToken();
 
-      // Fetch services list - using correct endpoint
       const servicesParams = new URLSearchParams({
         numberType: "mobile",
         reservationType: "verification",
@@ -1179,21 +1106,14 @@ export class TextVerifiedService {
         },
       });
 
-      console.log(
-        `[TextVerified] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`
-      );
-
       if (!servicesResponse.ok) {
         const errorText = await servicesResponse.text();
-        console.error(`[TextVerified] API Error: ${servicesResponse.status}`);
-        console.error(`[TextVerified] Error body:`, errorText);
         throw new Error(
           `TextVerified API error: ${servicesResponse.status} - ${errorText}`
         );
       }
 
       const servicesData = await servicesResponse.json();
-      // Try to extract list from multiple possible shapes
       const extractServices = (data: any) => {
         if (Array.isArray(data)) return data;
         if (Array.isArray(data?.data)) return data.data;
@@ -1203,144 +1123,126 @@ export class TextVerifiedService {
       };
       const servicesList = extractServices(servicesData);
 
-      console.log(
-        `[TextVerified] Total services found: ${servicesList.length}`
-      );
-
-      if (servicesList.length === 0) {
-        console.warn(`[TextVerified] ⚠️  No services returned from API`);
-        console.warn(
-          `[TextVerified] Raw services payload keys: ${Object.keys(
-            servicesData || {}
-          ).join(", ")}`
+      const smsServices = servicesList.filter((service: any) => {
+        return (
+          (typeof service.capability === "string" &&
+            service.capability.toLowerCase() === "sms") ||
+          (Array.isArray(service.capabilities) &&
+            service.capabilities
+              .map((c: string) => c.toLowerCase())
+              .includes("sms"))
         );
-        console.warn(
-          `[TextVerified] Raw:`,
-          JSON.stringify(servicesData).slice(0, 1000)
-        );
-        return [];
-      }
-
-      // Log first service to see available fields
-      if (servicesList.length > 0) {
-        console.log(
-          `[TextVerified] Sample service fields:`,
-          JSON.stringify(servicesList[0], null, 2)
-        );
-      }
-
-      // Return services with pricing data if available
-      const services = servicesList.map((service: any) => {
-        // Try to extract price from various possible field names
-        const price =
-          service.price ||
-          service.cost ||
-          service.minimumCost ||
-          service.minCost ||
-          service.verificationCost ||
-          0;
-
-        return {
-          code: service.serviceName || service.name || service.id,
-          name: service.serviceName || service.name || `${service.id}`,
-          country: "US",
-          countryName: "United States",
-          price: typeof price === "number" ? price : parseFloat(price) || 0,
-          count: 100, // Placeholder
-          providerId: "textverified",
-          currency: "USD",
-          capability: service.capability || "sms",
-        };
       });
 
-      // Count services with pricing data
-      const servicesWithPrice = services.filter((s: any) => s.price > 0).length;
-      console.log(
-        `\n[TextVerified] ✅ Successfully processed ${services.length} services (${servicesWithPrice} with pricing)`
+      const limit = 200;
+      const limitedServices = smsServices.slice(0, limit);
+      const pricingResults = await Promise.all(
+        limitedServices.map(async (service: any) => {
+          let price = 0;
+          try {
+            const pricingUrl = `${this.apiUrl}/pricing/verifications`;
+            const pricingBody = {
+              serviceName: service.serviceName,
+              areaCode: false,
+              carrier: false,
+              numberType: "mobile",
+              capability: "sms",
+            };
+            const pricingRes = await fetchWithRetry(pricingUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${bearerToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(pricingBody),
+            });
+            if (pricingRes.ok) {
+              const pricingData = await pricingRes.json();
+              price = pricingData.price;
+            }
+          } catch {}
+          if (price && price > 0) {
+            return {
+              code: service.serviceName || service.name || service.id,
+              name:
+                service.displayName ||
+                service.serviceName ||
+                service.name ||
+                `${service.id}`,
+              country: service.country || "US",
+              countryName: "United States",
+              price: typeof price === "number" ? price : parseFloat(price) || 0,
+              count: 100,
+              providerId: "textverified",
+              currency: "USD",
+              capability: "sms",
+            };
+          }
+          return null;
+        })
       );
-      console.log("╚═══════════════════════════════════════════════╝\n");
-
-      // Cache services for 1 hour
-      this.servicesCache = services;
+      const finalServices = pricingResults.filter((r) => r);
+      await redis.set(
+        "textverified:sms_services",
+        JSON.stringify(finalServices),
+        60 * 60
+      );
+      this.servicesCache = finalServices;
       this.servicesCacheExpiry = Date.now() + 60 * 60 * 1000;
-
-      return services;
+      return finalServices;
     } catch (err) {
-      console.error("\n[TextVerified] ❌ FATAL ERROR");
-      console.error(
-        "[TextVerified] Error:",
-        err instanceof Error ? err.message : err
-      );
-      if (err instanceof Error) {
-        console.error("[TextVerified] Stack:", err.stack);
-      }
-      console.log("╚═══════════════════════════════════════════════╝\n");
-
+      console.error("[TextVerified] Error:", err);
       return [];
     }
   }
 
-  /**
-   * Fetches the price for a single service by its name and caches it in Redis.
-   * @param serviceName The name of the service (e.g., "google", "uber").
-   * @returns The price in USD, or null if not found.
-   */
   async fetchAndCacheServicePrice(serviceName: string): Promise<number | null> {
-    console.log(
-      `[TextVerified][Price] Fetching price for service: ${serviceName}`
-    );
     const cacheKey = `textverified:price:${serviceName}`;
-
-    // 1. Check Redis cache first
     const cachedPrice = await redis.get(cacheKey);
-    if (cachedPrice && cachedPrice !== "-1" && parseFloat(cachedPrice) > 0) {
-      console.log(
-        `[TextVerified][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`
-      );
-      return parseFloat(cachedPrice);
+    if (cachedPrice && !isNaN(Number(cachedPrice)) && Number(cachedPrice) > 0) {
+      return Number(cachedPrice);
     }
-
-    console.log(`[TextVerified][Cache] ✗ MISS for ${serviceName}`);
-
-    // 2. Try to get price from the services list (which may have prices from API)
     try {
       const services = await this.getAvailableServices();
-      const service = services.find(
+      let service = services.find(
         (s: any) =>
           s.code === serviceName ||
           s.name?.toLowerCase() === serviceName.toLowerCase()
       );
-
-      if (service && service.price > 0) {
-        console.log(
-          `[TextVerified][Price] Found price from services list for ${serviceName}: $${service.price}`
-        );
+      if (service && typeof service.price === "number" && service.price > 0) {
         await redis.set(cacheKey, service.price.toString(), 60 * 60 * 24);
         return service.price;
       }
+      const bearerToken = await this.getBearerToken();
+      const detailsUrl = `${this.apiUrl}/services/${serviceName}`;
+      const detailsRes = await fetchWithRetry(detailsUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (detailsRes.ok) {
+        const details = await detailsRes.json();
+        const price =
+          details.price ||
+          details.cost ||
+          details.minimumCost ||
+          details.minCost ||
+          details.verificationCost ||
+          0;
+        if (price && price > 0) {
+          await redis.set(cacheKey, price.toString(), 60 * 60 * 24);
+          return price;
+        }
+      }
     } catch (e) {
-      console.warn(`[TextVerified][Price] Failed to get services list:`, e);
+      console.error(
+        `[TextVerified][Price] Failed to fetch price for ${serviceName}:`,
+        e
+      );
     }
-
-    // 3. Fallback to default base price
-    // TextVerified minimum verification price is typically $0.50-$2.00 USD
-    const defaultPrice = 0.5; // Minimum base price in USD
-
-    console.log(
-      `[TextVerified][Price] Using default base price for ${serviceName}: $${defaultPrice.toFixed(
-        2
-      )}`
-    );
-
-    await redis.set(cacheKey, defaultPrice.toString(), 60 * 60 * 24); // Cache for 24 hours
-
-    console.log(
-      `[TextVerified][Price] ✓ Cached price for ${serviceName}: $${defaultPrice.toFixed(
-        2
-      )}`
-    );
-
-    return defaultPrice;
+    return null;
   }
 
   async requestNumber(
@@ -1369,7 +1271,6 @@ export class TextVerifiedService {
     console.log(
       `[TextVerified][Request] Step 2: Fetching service capability...`
     );
-    // Fetch the service capability from the services list
     const services = await this.getAvailableServices();
     const service = services.find((s: any) => s.code === serviceName);
     const capability = service?.capability || "sms";
@@ -1400,7 +1301,6 @@ export class TextVerifiedService {
       `[TextVerified][Response] Status: ${res.status} ${res.statusText}`
     );
 
-    // Check if response is JSON before parsing
     const contentType = res.headers.get("content-type");
     let responseData: any;
 
@@ -1437,7 +1337,6 @@ export class TextVerifiedService {
       );
     }
 
-    // New API returns an href to the verification details instead of an ID.
     const href: string | undefined = responseData.href;
     if (!href) {
       console.error(
@@ -1451,7 +1350,6 @@ export class TextVerifiedService {
       );
     }
 
-    // Use the href as the external identifier; also keep a short id if needed
     const shortId = href.split("/").pop();
 
     console.log(`[TextVerified][Success] ✓ Verification created`);
@@ -1461,11 +1359,10 @@ export class TextVerifiedService {
       `[TextVerified][Success]   Number: ${responseData.number || "pending"}`
     );
     console.log(
-      `[TextVerified][Success]   Cost: $${responseData.price || "N/A"}`
+      `[TextVerified][Success]   Cost: ${responseData.price || "N/A"}`
     );
     console.log("╚════════════════════════════════════════════════╝\n");
 
-    // Phone number will be provided after polling the verification details.
     return {
       id: href,
       phoneNumber: responseData.number,
@@ -1473,7 +1370,6 @@ export class TextVerifiedService {
     };
   }
 
-  // Fetch verification details via href and extract status/number
   async getVerificationDetails(href: string): Promise<{
     state?: string;
     number?: string;
@@ -1495,5 +1391,20 @@ export class TextVerifiedService {
     const number =
       data?.data?.phoneNumber || data?.data?.number || data?.number;
     return { state, number };
+  }
+
+  async cancelVerification(href: string): Promise<void> {
+    const bearerToken = await this.getBearerToken();
+    const res = await fetchWithRetry(href, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${bearerToken}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Failed to cancel TextVerified verification: ${res.status} - ${text}`
+      );
+    }
+    console.log(`[TextVerified] Cancelled verification: ${href}`);
   }
 }
