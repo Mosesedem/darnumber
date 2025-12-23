@@ -28,6 +28,7 @@ import {
   CreditCard,
   Smartphone,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 interface ContactForm {
   name: string;
@@ -50,9 +51,10 @@ export default function ContactPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const { user } = useAuth();
   const [formData, setFormData] = useState<ContactForm>({
-    name: "",
-    email: "",
+    name: user?.name || "",
+    email: user?.email || "",
     phone: "",
     subject: "",
     category: "",
