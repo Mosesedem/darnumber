@@ -120,7 +120,8 @@ export class PricingService {
         profit = basePrice * (rule.profitValue / 100);
       } else {
         // FIXED - the profitValue is a fixed amount to add
-        profit = rule.profitValue;
+        // ensure we convert the profits to NGN
+        profit = rule.profitValue / 1400;
       }
       appliedRule = rule;
 
