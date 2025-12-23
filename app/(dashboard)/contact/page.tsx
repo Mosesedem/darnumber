@@ -304,27 +304,27 @@ export default function ContactPage() {
               <h3 className="font-semibold mb-4">Quick Contact</h3>
               <div className="space-y-4">
                 <a
-                  href="mailto:support@darnumber.com"
+                  href="mailto: daradsdarads@gmail.com"
                   className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
                 >
                   <Mail className="h-5 w-5 text-primary mt-0.5" />
                   <div>
                     <p className="font-medium text-sm">Email Support</p>
                     <p className="text-sm text-muted-foreground">
-                      support@darnumber.com
+                      daradsdarads@gmail.com
                     </p>
                   </div>
                 </a>
 
                 <a
-                  href="tel:+2348000000000"
+                  href="tel:+2347033035020"
                   className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
                 >
                   <Phone className="h-5 w-5 text-primary mt-0.5" />
                   <div>
                     <p className="font-medium text-sm">Phone Support</p>
                     <p className="text-sm text-muted-foreground">
-                      +234 800 000 0000
+                      +234 (0) 70 3303 5020
                     </p>
                   </div>
                 </a>
@@ -354,17 +354,18 @@ export default function ContactPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Saturday</span>
-                  <span className="font-medium">10:00 AM - 4:00 PM</span>
+                  {/* <span className="font-medium">10:00 AM - 4:00 PM</span> */}
+                  <span className="font-medium">9:00 AM - 6:00 PM</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sunday</span>
                   <span className="font-medium text-muted-foreground">
-                    Closed
+                    9:00 AM - 6:00 PM
                   </span>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-4">
-                Response time: Usually within 24 hours
+                Response time: Usually within 2 hours
               </p>
             </Card>
 
@@ -387,8 +388,8 @@ export default function ContactPage() {
               <h3 className="font-semibold mb-4">Follow Us</h3>
               <div className="flex gap-3">
                 <a
-                  href="https://twitter.com/darnumber"
-                  target="_blank"
+                  href="#"
+                  // target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
                 >
@@ -401,8 +402,8 @@ export default function ContactPage() {
                   </svg>
                 </a>
                 <a
-                  href="https://facebook.com/darnumber"
-                  target="_blank"
+                  href="#"
+                  // target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
                 >
@@ -415,7 +416,7 @@ export default function ContactPage() {
                   </svg>
                 </a>
                 <a
-                  href="https://instagram.com/darnumber"
+                  href="https://www.instagram.com/darnumber_"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
@@ -429,7 +430,7 @@ export default function ContactPage() {
                   </svg>
                 </a>
                 <a
-                  href="https://wa.me/2348000000000"
+                  href="https://wa.me/2347033035020"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-green-500 hover:text-white transition-colors"
