@@ -21,6 +21,7 @@ export const COUNTRIES = {
   ES: { name: "Spain", flag: "🇪🇸", code: "ES" },
   NL: { name: "Netherlands", flag: "🇳🇱", code: "NL" },
   PL: { name: "Poland", flag: "🇵🇱", code: "PL" },
+  MD: { name: "Moldova", flag: "🇲🇩", code: "MD" },
   UA: { name: "Ukraine", flag: "🇺🇦", code: "UA" },
   ID: { name: "Indonesia", flag: "🇮🇩", code: "ID" },
   TR: { name: "Turkey", flag: "🇹🇷", code: "TR" },

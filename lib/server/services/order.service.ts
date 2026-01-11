@@ -969,7 +969,7 @@ export class SMSManService {
     }
     const applicationId = app.id;
 
-    const countryId = this.getCountryIdFromCode(country);
+    const countryId = await this.getCountryIdFromCode(country);
 
     const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}`;
     console.log("[SMSManService] GET", url);
@@ -1005,70 +1005,68 @@ export class SMSManService {
     return applications;
   }
 
-  private getCountryIdFromCode(countryCode: string): string {
-    // Reverse mapping from ISO code to SMS-Man country ID
-    const codeMap: Record<string, string> = {
-      RU: "0",
-      UA: "1",
-      KZ: "2",
-      CN: "3",
-      PH: "4",
-      MM: "5",
-      ID: "6",
-      MY: "7",
-      KE: "8",
-      TZ: "9",
-      VN: "10",
-      KG: "11",
-      US: "12",
-      IL: "13",
-      HK: "14",
-      PL: "15",
-      GB: "16",
-      MG: "17",
-      ZA: "18",
-      RO: "19",
-      EG: "20",
-      IN: "21",
-      IE: "22",
-      KH: "23",
-      LA: "24",
-      HT: "25",
-      CI: "26",
-      GM: "27",
-      RS: "28",
-      YE: "29",
-      ZM: "30",
-      UZ: "31",
-      TJ: "32",
-      EC: "33",
-      SV: "34",
-      LY: "35",
-      JM: "36",
-      TT: "37",
-      GH: "38",
-      AR: "39",
-      UG: "40",
-      ZW: "41",
-      BO: "42",
-      CM: "43",
-      MA: "44",
-      AO: "45",
-      CA: "46",
-      MZ: "47",
-      NP: "48",
-      KR: "49",
-      TH: "50",
-      BD: "51",
-      NL: "52",
-      FR: "53",
-      DE: "54",
-      IT: "55",
-      ES: "56",
-      BR: "57",
-      MX: "58",
-      NG: "59",
-    };
-    return codeMap[countryCode] || "12"; // Default to US
+  /**
+   * Fetches and caches countries from SMS-Man API
+   * Returns a map of ISO country code -> SMS-Man country ID
+   */
+  private async getCountries(): Promise<Map<string, string>> {
+    const cacheKey = "smsman:countries";
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      // Convert cached object back to Map
+      return new Map(Object.entries(JSON.parse(cached)));
+    }
+
+    console.log("[SMSManService] Fetching countries from API...");
+    const res = await fetch(`${this.apiUrl}/countries?token=${this.apiKey}`);
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch countries: ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // Build reverse mapping: ISO code -> SMS-Man ID
+    const countryMap = new Map<string, string>();
+
+    Object.entries(data).forEach(([id, country]: [string, any]) => {
+      if (country.code) {
+        // SMS-Man returns country codes like "ru", "us" - normalize to uppercase
+        const isoCode = country.code.toUpperCase();
+        countryMap.set(isoCode, id);
+      }
+    });
+
+    console.log(`[SMSManService] Cached ${countryMap.size} countries from API`);
+
+    // Cache as object (Maps don't serialize directly)
+    await redis.set(
+      cacheKey,
+      JSON.stringify(Object.fromEntries(countryMap)),
+      60 * 60 * 24 // Cache for 24 hours
+    );
+
+    return countryMap;
+  }
+
+  /**
+   * Converts ISO country code to SMS-Man country ID using API data
+   */
+  private async getCountryIdFromCode(countryCode: string): Promise<string> {
+    const countries = await this.getCountries();
+    const countryId = countries.get(countryCode.toUpperCase());
+
+    if (!countryId) {
+      console.warn(
+        `[SMSManService] Country code "${countryCode}" not found in SMS-Man. Available: ${Array.from(
+          countries.keys()
+        )
+          .slice(0, 10)
+          .join(", ")}...`
+      );
+      throw new Error(`Country "${countryCode}" is not supported by SMS-Man`);
+    }
+
+    return countryId;
   }
 }
