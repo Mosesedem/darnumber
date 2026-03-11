@@ -59,35 +59,82 @@ interface CreateOrderInput {
 
 export class OrderService {
   async createOrder(input: CreateOrderInput) {
+    console.log("[OrderService.createOrder] ========== START ==========");
+    console.log("[OrderService.createOrder] Input:", JSON.stringify(input));
     const { userId, serviceCode, country, price, preferredProvider } = input;
 
     // 1. Validate User
+    console.log("[OrderService.createOrder] Step 1: Validating user...");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { balance: true, currency: true },
     });
-    if (!user) throw new Error("User not found");
+    if (!user) {
+      console.error("[OrderService.createOrder] User not found:", userId);
+      throw new Error("User not found");
+    }
+    console.log(
+      "[OrderService.createOrder] User found. Balance:",
+      user.balance.toString(),
+      user.currency,
+    );
 
     // 2. Validate Provider
+    console.log("[OrderService.createOrder] Step 2: Resolving providers for:", {
+      serviceCode,
+      country,
+      preferredProvider,
+    });
     const providers = await this.getAvailableProviders(
       serviceCode,
       country,
       preferredProvider,
     );
+    console.log(
+      "[OrderService.createOrder] Available providers:",
+      providers.map((p) => `${p.name} (id: ${p.id})`),
+    );
     if (!providers.length) {
+      console.error("[OrderService.createOrder] No providers available for:", {
+        serviceCode,
+        country,
+        preferredProvider,
+      });
       throw new Error("No providers available for this service and country.");
     }
     const selectedProvider = providers[0];
+    console.log(
+      "[OrderService.createOrder] Selected provider:",
+      selectedProvider,
+    );
 
     // 3. Validate Price and Balance
+    console.log(
+      "[OrderService.createOrder] Step 3: Validating price and balance...",
+    );
     // For TextVerified, the price is passed in. For others, we might calculate it here.
     // This logic assumes the passed 'price' is the final, correct price.
     const finalPrice = new Prisma.Decimal(price);
+    console.log(
+      "[OrderService.createOrder] Price:",
+      finalPrice.toString(),
+      "Balance:",
+      user.balance.toString(),
+    );
     if (user.balance.lt(finalPrice)) {
+      console.error("[OrderService.createOrder] Insufficient balance:", {
+        balance: user.balance.toString(),
+        required: finalPrice.toString(),
+        deficit: finalPrice.sub(user.balance).toString(),
+      });
       throw new Error("Insufficient balance");
     }
+    console.log("[OrderService.createOrder] Balance check passed.");
 
     // 4. Create Order and Transaction in a single DB operation
+    console.log(
+      "[OrderService.createOrder] Step 4: Creating order record and deducting balance...",
+    );
     const order = await prisma.$transaction(async (tx) => {
       // Debit user's balance
       await tx.user.update({
@@ -129,21 +176,40 @@ export class OrderService {
 
       return newOrder;
     });
+    console.log("[OrderService.createOrder] Order record created:", {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    });
 
     // 5. Request number with provider failover (outside the main DB transaction)
+    console.log(
+      "[OrderService.createOrder] Step 5: Requesting number from providers...",
+    );
     const providerErrors: Array<{ provider: string; message: string }> = [];
 
     for (const provider of providers) {
       try {
+        console.log(
+          `[OrderService.createOrder] Trying provider: ${provider.name} (id: ${provider.id})`,
+        );
         const providerService = this.getProviderService(provider.name);
         console.log(
-          `[OrderService] Requesting number from ${provider.name}...`,
+          `[OrderService.createOrder] Requesting number from ${provider.name} for service=${serviceCode} country=${country}...`,
         );
 
         const providerOrder = await providerService.requestNumber(
           serviceCode,
           country,
           order.id,
+        );
+
+        console.log(
+          `[OrderService.createOrder] Provider ${provider.name} returned:`,
+          {
+            id: providerOrder.id,
+            phoneNumber: providerOrder.phoneNumber,
+            cost: providerOrder.cost,
+          },
         );
 
         const updatedOrder = await prisma.order.update({
@@ -159,8 +225,17 @@ export class OrderService {
           },
         });
 
+        console.log("[OrderService.createOrder] ========== SUCCESS ==========");
+        console.log("[OrderService.createOrder] Order updated:", {
+          orderId: updatedOrder.id,
+          phoneNumber: updatedOrder.phoneNumber,
+          status: updatedOrder.status,
+          expiresAt: updatedOrder.expiresAt,
+        });
+
         return {
           orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
           phoneNumber: updatedOrder.phoneNumber,
           status: updatedOrder.status,
           expiresAt: updatedOrder.expiresAt,
@@ -169,8 +244,11 @@ export class OrderService {
         const message = e instanceof Error ? e.message : String(e);
         providerErrors.push({ provider: provider.name, message });
         console.warn(
-          `[OrderService] Provider ${provider.name} failed for order ${order.id}: ${message}`,
+          `[OrderService.createOrder] Provider ${provider.name} failed for order ${order.id}: ${message}`,
         );
+        if (e instanceof Error && e.stack) {
+          console.warn(`[OrderService.createOrder] Stack trace:`, e.stack);
+        }
       }
     }
 
@@ -223,6 +301,38 @@ export class OrderService {
     country: string,
     preferred?: string,
   ) {
+    console.log("[OrderService.getAvailableProviders] Input:", {
+      serviceCode,
+      country,
+      preferred,
+    });
+
+    // Normalize preferred provider name to handle various formats
+    // Frontend may send "sms-man", "textverified", "lion", "panda", etc.
+    const normalizeProvider = (name?: string): string | undefined => {
+      if (!name) return undefined;
+      const lower = name.toLowerCase();
+      if (
+        lower.includes("lion") ||
+        lower.includes("sms-man") ||
+        lower === "sms-man"
+      )
+        return "sms-man";
+      if (
+        lower.includes("panda") ||
+        lower.includes("textverified") ||
+        lower === "textverified"
+      )
+        return "textverified";
+      return lower;
+    };
+
+    const normalizedPreferred = normalizeProvider(preferred);
+    console.log(
+      "[OrderService.getAvailableProviders] Normalized preferred:",
+      normalizedPreferred,
+    );
+
     // Use hardcoded providers instead of DB queries
     const availableProviders: Array<{
       id: string;
@@ -231,7 +341,7 @@ export class OrderService {
     }> = [];
 
     // Check if SMS-Man (Lion) supports this country
-    if (preferred === "sms-man" || !preferred) {
+    if (normalizedPreferred === "sms-man" || !normalizedPreferred) {
       // SMS-Man supports all countries globally
       availableProviders.push({
         id: "sms-man",
@@ -241,7 +351,10 @@ export class OrderService {
     }
 
     // Check if TextVerified (Panda) supports this country
-    if (country === "US" && (preferred === "textverified" || !preferred)) {
+    if (
+      country === "US" &&
+      (normalizedPreferred === "textverified" || !normalizedPreferred)
+    ) {
       availableProviders.push({
         id: "textverified",
         name: "textverified",
@@ -250,12 +363,21 @@ export class OrderService {
     }
 
     // If a preferred provider was specified but not added, return empty
-    if (preferred && availableProviders.length === 0) {
+    if (normalizedPreferred && availableProviders.length === 0) {
+      console.warn(
+        "[OrderService.getAvailableProviders] Preferred provider not available:",
+        { preferred, normalizedPreferred, country },
+      );
       return [];
     }
 
     // Sort by priority (higher priority first)
-    return availableProviders.sort((a, b) => b.priority - a.priority);
+    const sorted = availableProviders.sort((a, b) => b.priority - a.priority);
+    console.log(
+      "[OrderService.getAvailableProviders] Result:",
+      sorted.map((p) => `${p.name} (priority ${p.priority})`),
+    );
+    return sorted;
   }
 
   async calculatePricing(
@@ -1023,41 +1145,78 @@ export class SMSManService {
     country: string,
     orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    console.log("[SMSManService] requestNumber", {
+    console.log("[SMSManService.requestNumber] ========== START ==========");
+    console.log("[SMSManService.requestNumber] Input:", {
       serviceCode,
       country,
       orderId,
     });
 
     if (!this.apiKey) {
+      console.error("[SMSManService.requestNumber] API key not configured!");
       throw new Error("SMS-Man API key not configured");
     }
 
     // This needs to be reversed; we get a service code like 'wa' and need the ID
+    console.log(
+      "[SMSManService.requestNumber] Looking up application ID for service code:",
+      serviceCode,
+    );
     const applications = await this.getApplications();
     const app = applications.find((a) => a.code === serviceCode);
     if (!app) {
+      console.error(
+        "[SMSManService.requestNumber] Service code not found in applications:",
+        {
+          serviceCode,
+          availableCodes: applications.slice(0, 20).map((a) => a.code),
+        },
+      );
       throw new Error(`SMS-Man does not support service code: ${serviceCode}`);
     }
     const applicationId = app.id;
+    console.log("[SMSManService.requestNumber] Found application:", {
+      code: serviceCode,
+      id: applicationId,
+    });
 
+    console.log(
+      "[SMSManService.requestNumber] Looking up country ID for:",
+      country,
+    );
     const countryId = await this.getCountryIdFromCode(country);
+    console.log("[SMSManService.requestNumber] Country ID:", countryId);
 
     const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}`;
-    console.log("[SMSManService] GET", url);
+    console.log(
+      "[SMSManService.requestNumber] GET",
+      url.replace(this.apiKey, "***"),
+    );
 
     const res = await fetch(url);
     const data = await res.json();
-    console.log("[SMSManService] Response", data);
+    console.log(
+      "[SMSManService.requestNumber] Response:",
+      JSON.stringify(data),
+    );
 
     if (data.success === false || data.error_code) {
+      console.error("[SMSManService.requestNumber] Provider error:", data);
       throw new Error(data.error_msg || data.error || "Failed to get number");
     }
+
+    console.log("[SMSManService.requestNumber] ========== SUCCESS ==========");
+    console.log("[SMSManService.requestNumber] Got number:", {
+      request_id: data.request_id,
+      number: data.number,
+      country_id: data.country_id,
+      application_id: data.application_id,
+    });
 
     return {
       id: data.request_id.toString(),
       phoneNumber: data.number,
-      cost: data.cost, // Assuming the API returns a cost
+      cost: data.cost,
     };
   }
 

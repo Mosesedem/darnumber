@@ -27,7 +27,7 @@ class ApiClient {
         }
         return config;
       },
-      (error) => Promise.reject(error)
+      (error) => Promise.reject(error),
     );
 
     // Response interceptor - handle errors
@@ -39,7 +39,7 @@ class ApiClient {
           if (typeof window !== "undefined") window.location.href = "/login";
         }
         return Promise.reject(error);
-      }
+      },
     );
   }
 
@@ -91,7 +91,7 @@ class ApiClient {
     if (response.data.success) {
       this.setTokens(
         response.data.data.accessToken,
-        response.data.data.refreshToken
+        response.data.data.refreshToken,
       );
       if (typeof window !== "undefined") {
         localStorage.setItem("user", JSON.stringify(response.data.data.user));
@@ -161,7 +161,7 @@ class ApiClient {
       search?: string;
       startDate?: string;
       endDate?: string;
-    }
+    },
   ) {
     const response = await this.client.get("/orders", {
       params: {
@@ -194,6 +194,7 @@ class ApiClient {
   async getAvailableServices(country?: string, serviceCode?: string) {
     const response = await this.client.get("/orders/services", {
       params: { country, serviceCode },
+      timeout: 120000, // Services aggregation can take longer on first load
     });
     return response.data;
   }
@@ -203,8 +204,8 @@ class ApiClient {
     const data = await this.getAvailableServices(country, serviceCode);
     const services = (data?.data?.services || []).filter((s: any) =>
       (s.providers || []).some(
-        (p: any) => p.name === "sms-man" || p.id === "lion"
-      )
+        (p: any) => p.name === "sms-man" || p.id === "lion",
+      ),
     );
     return { ok: true, data: { services } };
   }
@@ -213,8 +214,8 @@ class ApiClient {
     const data = await this.getAvailableServices(country, serviceCode);
     const services = (data?.data?.services || []).filter((s: any) =>
       (s.providers || []).some(
-        (p: any) => p.name === "textverified" || p.id === "panda"
-      )
+        (p: any) => p.name === "textverified" || p.id === "panda",
+      ),
     );
     return { ok: true, data: { services } };
   }
@@ -228,7 +229,7 @@ class ApiClient {
 
   async getTextVerifiedPrice(serviceName: string) {
     const response = await this.client.get(
-      `/providers/textverified/price?serviceName=${serviceName}`
+      `/providers/textverified/price?serviceName=${serviceName}`,
     );
     return response.data;
   }
@@ -263,7 +264,7 @@ class ApiClient {
       search?: string;
       type?: string;
       status?: string;
-    }
+    },
   ) {
     const params: any = { page, limit };
     if (filters?.search) params.search = filters.search;
@@ -324,7 +325,7 @@ class ApiClient {
 
   async verifyPayment(reference: string, provider: string) {
     const response = await this.client.get(
-      `/payments/verify/${reference}?provider=${provider}`
+      `/payments/verify/${reference}?provider=${provider}`,
     );
     return response.data;
   }
@@ -347,7 +348,7 @@ class ApiClient {
   async requestPaystackDedicatedAccount(preferredBank?: string) {
     const response = await this.client.post(
       "/payments/paystack/dedicated-account",
-      preferredBank ? { preferredBank } : {}
+      preferredBank ? { preferredBank } : {},
     );
     return response.data;
   }
@@ -396,7 +397,7 @@ class ApiClient {
   async adjustBalance(userId: string, amount: number, reason: string) {
     const response = await this.client.post(
       `/admin/users/${userId}/adjust-balance`,
-      { amount, reason }
+      { amount, reason },
     );
     return response.data;
   }
@@ -431,7 +432,7 @@ class ApiClient {
   async updatePricingRule(ruleId: string, data: any) {
     const response = await this.client.patch(
       `/admin/pricing-rules/${ruleId}`,
-      data
+      data,
     );
     return response.data;
   }
@@ -449,14 +450,14 @@ class ApiClient {
   async updateProvider(providerId: string, data: any) {
     const response = await this.client.patch(
       `/admin/providers/${providerId}`,
-      data
+      data,
     );
     return response.data;
   }
 
   async syncProvider(providerId: string) {
     const response = await this.client.post(
-      `/admin/providers/${providerId}/sync`
+      `/admin/providers/${providerId}/sync`,
     );
     return response.data;
   }

@@ -11,8 +11,15 @@ import { getRedisService } from "@/lib/server/services/redis.service";
 export const runtime = "nodejs";
 
 const redis = getRedisService();
-const SERVICES_CACHE_KEY = "orders:services:aggregated:v1";
+const SERVICES_CACHE_KEY = "orders:services:aggregated:v2";
 const SERVICES_CACHE_TTL_SECONDS = 5 * 60;
+
+// TextVerified default base price in USD (most services are $2.50)
+// Exact price is fetched lazily via /api/providers/textverified/price when user selects a service
+const TV_DEFAULT_BASE_PRICE_USD = 2.5;
+
+// In-memory cache fallback for when Redis is OOM
+let memoryCache: { data: string; expiresAt: number } | null = null;
 
 export async function GET(req: NextRequest) {
   console.log("\n╔════════════════════════════════════════════════╗");
@@ -23,10 +30,19 @@ export async function GET(req: NextRequest) {
     const authResult = await requireAuth();
     console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated`);
 
-    const cachedServices = await redis.get(SERVICES_CACHE_KEY);
-    if (cachedServices) {
-      console.log("[Cache] ✓ Returning cached aggregated services payload");
-      return json({ ok: true, data: JSON.parse(cachedServices) });
+    // Try Redis cache first, then in-memory fallback
+    try {
+      const cachedServices = await redis.get(SERVICES_CACHE_KEY);
+      if (cachedServices) {
+        console.log("[Cache] ✓ Returning cached aggregated services (Redis)");
+        return json({ ok: true, data: JSON.parse(cachedServices) });
+      }
+    } catch (e) {
+      console.warn("[Cache] Redis read failed, checking memory cache");
+    }
+    if (memoryCache && Date.now() < memoryCache.expiresAt) {
+      console.log("[Cache] ✓ Returning cached aggregated services (memory)");
+      return json({ ok: true, data: JSON.parse(memoryCache.data) });
     }
 
     console.log("[Rates] Fetching exchange rates from cache/API...");
@@ -77,15 +93,30 @@ export async function GET(req: NextRequest) {
 
     let tvServices: any[] = [];
     try {
-      console.log("[TextVerified] Fetching services...");
-      const textVerifiedService = new TextVerifiedService();
-      tvServices = await textVerifiedService.getAvailableServices();
       console.log(
-        `[TextVerified] ✓ Fetched ${tvServices.length} services (USD pricing)`,
+        "[TextVerified] Fetching service list (fast, no individual pricing)...",
       );
+      const textVerifiedService = new TextVerifiedService();
+      // Use getAvailableServices() — single API call, cached 1hr
+      // Individual pricing is fetched lazily on the frontend when user selects a service
+      const basicServices = await textVerifiedService.getAvailableServices();
+      tvServices = basicServices.map((s: any) => ({
+        ...s,
+        price: TV_DEFAULT_BASE_PRICE_USD,
+      }));
+      console.log(
+        `[TextVerified] ✓ Fetched ${tvServices.length} services (default price: $${TV_DEFAULT_BASE_PRICE_USD})`,
+      );
+      if (tvServices.length > 0) {
+        console.log(`[TextVerified] Sample service:`, {
+          name: tvServices[0].serviceName,
+          price: tvServices[0].price,
+          capability: tvServices[0].capability,
+        });
+      }
     } catch (err) {
       console.error(
-        "[TextVerified] ✗ Error:",
+        "[TextVerified] ✗ Error fetching services:",
         err instanceof Error ? err.message : err,
       );
       tvServices = [];
@@ -258,13 +289,31 @@ export async function GET(req: NextRequest) {
     const result = {
       services: Array.from(servicesMap.values()),
       providers,
+      exchangeRate: {
+        usdToNgn: usdToNgnRate,
+        usdToRub: rubToUsdRate,
+        source: "server",
+        timestamp: new Date().toISOString(),
+      },
     };
 
-    await redis.set(
-      SERVICES_CACHE_KEY,
-      JSON.stringify(result),
-      SERVICES_CACHE_TTL_SECONDS,
-    );
+    // Cache in Redis (may fail if OOM) and always cache in memory as fallback
+    const resultJson = JSON.stringify(result);
+    memoryCache = {
+      data: resultJson,
+      expiresAt: Date.now() + SERVICES_CACHE_TTL_SECONDS * 1000,
+    };
+    try {
+      await redis.set(
+        SERVICES_CACHE_KEY,
+        resultJson,
+        SERVICES_CACHE_TTL_SECONDS,
+      );
+    } catch (cacheErr) {
+      console.warn(
+        "[Cache] Redis write failed (OOM?), using memory cache only",
+      );
+    }
 
     console.log("\n[Summary] ✓ Aggregation complete:");
     console.log(`  • Total unique services: ${result.services.length}`);
@@ -293,6 +342,9 @@ export async function GET(req: NextRequest) {
     }
 
     console.log("╚════════════════════════════════════════════════╝\n");
-    return error("Unexpected error", 500);
+    return error(
+      `Service aggregation failed: ${e instanceof Error ? e.message : "Unknown error"}`,
+      500,
+    );
   }
 }

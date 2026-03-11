@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo, useDeferredValue } from "react";
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useDeferredValue,
+  useCallback,
+  useRef,
+} from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
@@ -53,9 +60,6 @@ interface Service {
 }
 
 const FALLBACK_USD_TO_NGN = 1600;
-const FALLBACK_USD_TO_RUB = 100;
-const FALLBACK_RUB_TO_USD = 1 / FALLBACK_USD_TO_RUB;
-const FALLBACK_RUB_TO_NGN = FALLBACK_USD_TO_NGN / FALLBACK_USD_TO_RUB;
 
 export default function NewOrderPage() {
   const router = useRouter();
@@ -77,13 +81,10 @@ export default function NewOrderPage() {
     Map<string, string>
   >(new Map());
   const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
-  const [rubToUsd, setRubToUsd] = useState<number>(FALLBACK_RUB_TO_USD);
-  const [servicePrices, setServicePrices] = useState<Record<string, number>>(
-    {},
-  );
-  const [isPriceLoading, setIsPriceLoading] = useState<Record<string, boolean>>(
-    {},
-  );
+  // Lazy TextVerified exact price (fetched per-service when selected)
+  const [tvExactPrice, setTvExactPrice] = useState<number | null>(null);
+  const [tvPriceLoading, setTvPriceLoading] = useState(false);
+  const tvPriceAbortRef = useRef<AbortController | null>(null);
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -149,115 +150,172 @@ export default function NewOrderPage() {
     fetchData();
   }, []);
 
-  // Fetch exchange rates: RUB→USD and USD→NGN
+  // Exchange rate is now loaded from the services API in fetchData().
+  // Fallback: fetch from our own server API if services didn't include it.
   useEffect(() => {
-    const loadRates = async () => {
+    const loadFallbackRate = async () => {
+      // Only fetch if still using the hardcoded fallback
+      if (usdToNgn !== FALLBACK_USD_TO_NGN) return;
       try {
-        const res = await fetch(
-          "https://openexchangerates.org/api/latest.json?app_id=5e1de33c06ec43ad8047ef4b9fc163c4",
-        );
-        if (!res.ok) throw new Error("Failed to fetch exchange rates");
-        const data = (await res.json()) as {
-          rates?: Record<string, number>;
-          base?: string;
-        };
-        const ngnRate = data?.rates?.NGN;
-        const rubRate = data?.rates?.RUB;
-
-        const usdToNgnRate =
-          typeof ngnRate === "number" && ngnRate > 0
-            ? ngnRate
-            : FALLBACK_USD_TO_NGN;
-        const usdToRubRate =
-          typeof rubRate === "number" && rubRate > 0
-            ? rubRate
-            : FALLBACK_USD_TO_RUB;
-
-        // Calculate RUB→USD (since base is USD, RUB rate is RUB per 1 USD)
-        // So 1 RUB = 1/rubRate USD
-        const rubToUsdRate = 1 / usdToRubRate;
-        const rubToNgnRate = rubToUsdRate * usdToNgnRate;
-
-        setUsdToNgn(usdToNgnRate);
-        setRubToUsd(rubToUsdRate);
-
-        if (
-          (typeof ngnRate !== "number" || ngnRate <= 0) &&
-          (typeof rubRate !== "number" || rubRate <= 0)
-        ) {
-          console.warn("[NewOrderPage] Using fallback exchange rates", {
-            "USD → NGN": FALLBACK_USD_TO_NGN,
-            "USD → RUB": FALLBACK_USD_TO_RUB,
-            "RUB → NGN": FALLBACK_RUB_TO_NGN,
-          });
+        console.log("[NewOrderPage] Fetching exchange rate from server API...");
+        const res = await fetch("/api/exchange-rates");
+        if (res.ok) {
+          const data = await res.json();
+          const rate = data?.data?.usdToNgn;
+          if (rate && rate > 0) {
+            console.log(
+              `[NewOrderPage] Exchange rate from API: 1 USD = ₦${rate}`,
+            );
+            setUsdToNgn(rate);
+          }
         }
-
-        console.log("[NewOrderPage] 💱 Exchange rates loaded:", {
-          base: data.base || "USD",
-          "USD → NGN": usdToNgnRate,
-          "RUB → USD": rubToUsdRate.toFixed(6),
-          "1 RUB": `$${rubToUsdRate.toFixed(4)} = ₦${rubToNgnRate.toFixed(2)}`,
-        });
       } catch (e) {
-        console.warn("[NewOrderPage] Failed to fetch exchange rates:", e);
-        setUsdToNgn(FALLBACK_USD_TO_NGN);
-        setRubToUsd(FALLBACK_RUB_TO_USD);
-        console.warn("[NewOrderPage] Applied fallback exchange rates", {
-          "USD → NGN": FALLBACK_USD_TO_NGN,
-          "USD → RUB": FALLBACK_USD_TO_RUB,
-          "RUB → NGN": FALLBACK_RUB_TO_NGN,
-        });
+        console.warn(
+          "[NewOrderPage] Failed to fetch exchange rate fallback:",
+          e,
+        );
       }
     };
-    loadRates();
-  }, []);
+    // Delay slightly to let fetchData set the rate first
+    const timer = setTimeout(loadFallbackRate, 2000);
+    return () => clearTimeout(timer);
+  }, [usdToNgn]);
 
   const fetchData = async () => {
     try {
-      console.log("[NewOrderPage] Fetching services and balance...");
+      console.log("[NewOrderPage] ========== FETCHING DATA ==========");
 
-      const [servicesRes, balanceRes] = await Promise.all([
+      // Fetch services and balance independently so one failure doesn't block the other
+      let servicesRes: any = null;
+      let balanceRes: any = null;
+      let servicesError: any = null;
+
+      const [sResult, bResult] = await Promise.allSettled([
         api.getAvailableServices(),
         api.getBalance(),
       ]);
 
-      const services: Service[] = servicesRes?.data?.services || [];
-      const providersFromApi: Provider[] = servicesRes?.data?.providers || [];
+      if (sResult.status === "fulfilled") {
+        servicesRes = sResult.value;
+      } else {
+        servicesError = sResult.reason;
+        console.error("[NewOrderPage] Services API failed:", {
+          message: servicesError?.message || String(servicesError),
+          status: servicesError?.response?.status,
+          data: servicesError?.response?.data,
+        });
+      }
 
-      console.log(
-        `[NewOrderPage] Loaded ${services.length} services from ${providersFromApi.length} providers`,
-      );
+      if (bResult.status === "fulfilled") {
+        balanceRes = bResult.value;
+        setBalance(balanceRes.data.balance);
+      } else {
+        console.error(
+          "[NewOrderPage] Balance API failed:",
+          bResult.reason?.message,
+        );
+      }
 
-      setAllServices(services);
+      // Always provide default providers so the cards render
+      const defaultProviders: Provider[] = [
+        {
+          id: "lion",
+          name: "sms-man",
+          displayName: "Lion SMS",
+          cover: "All Countries",
+        },
+        {
+          id: "panda",
+          name: "textverified",
+          displayName: "Panda Verify",
+          cover: "United States",
+        },
+      ];
 
-      // Use providers from API or fallback to defaults
-      const finalProviders =
-        providersFromApi.length > 0
-          ? providersFromApi
-          : [
-              {
-                id: "lion",
-                name: "sms-man",
-                displayName: "Lion SMS",
-                cover: "All Countries",
-              },
-              {
-                id: "panda",
-                name: "textverified",
-                displayName: "Panda Verify",
-                cover: "United States",
-              },
-            ];
+      if (servicesRes) {
+        console.log("[NewOrderPage] Raw servicesRes:", {
+          ok: servicesRes?.ok,
+          servicesCount: servicesRes?.data?.services?.length,
+          providersCount: servicesRes?.data?.providers?.length,
+          exchangeRate: servicesRes?.data?.exchangeRate,
+        });
 
-      setProviders(finalProviders);
-      setBalance(balanceRes.data.balance);
+        const services: Service[] = servicesRes?.data?.services || [];
+        const providersFromApi: Provider[] = servicesRes?.data?.providers || [];
+
+        // Extract exchange rate from services response (set by backend)
+        const apiRate = servicesRes?.data?.exchangeRate?.usdToNgn;
+        if (apiRate && typeof apiRate === "number" && apiRate > 0) {
+          console.log(
+            `[NewOrderPage] Exchange rate from services API: 1 USD = ₦${apiRate}`,
+          );
+          setUsdToNgn(apiRate);
+        } else {
+          console.warn(
+            "[NewOrderPage] No exchange rate in services response, using current:",
+            usdToNgn,
+          );
+        }
+
+        console.log(
+          `[NewOrderPage] Loaded ${services.length} services from ${providersFromApi.length} providers`,
+        );
+
+        // Log sample services for debugging
+        if (services.length > 0) {
+          const sample = services.slice(0, 3);
+          sample.forEach((s, i) => {
+            console.log(`[NewOrderPage] Sample service [${i}]:`, {
+              code: s.code,
+              name: s.name,
+              country: s.country,
+              price: s.price,
+              providers: s.providers.map((p) => ({ id: p.id, name: p.name })),
+            });
+          });
+        }
+
+        setAllServices(services);
+        setProviders(
+          providersFromApi.length > 0 ? providersFromApi : defaultProviders,
+        );
+      } else {
+        // Services failed - still show the provider cards and a meaningful error
+        setProviders(defaultProviders);
+        const statusCode = servicesError?.response?.status;
+        if (statusCode === 401) {
+          setError("Session expired. Please log in again.");
+        } else if (statusCode === 503) {
+          setError(
+            "Provider services are temporarily unavailable. Please try again in a moment.",
+          );
+        } else {
+          setError("Failed to load services. Please refresh the page.");
+        }
+      }
 
       // Set default provider
-      if (finalProviders.length > 0) {
-        setSelectedProvider(finalProviders[0].id);
+      if (!selectedProvider) {
+        setSelectedProvider("lion");
       }
-    } catch (error) {
-      console.error("[NewOrderPage] Failed to fetch data:", error);
+    } catch (error: any) {
+      console.error("[NewOrderPage] Unexpected error in fetchData:", error);
+      // Still set providers so the UI doesn't look completely broken
+      setProviders([
+        {
+          id: "lion",
+          name: "sms-man",
+          displayName: "Lion SMS",
+          cover: "All Countries",
+        },
+        {
+          id: "panda",
+          name: "textverified",
+          displayName: "Panda Verify",
+          cover: "United States",
+        },
+      ]);
+      if (!selectedProvider) setSelectedProvider("lion");
       setError("Failed to load services. Please refresh the page.");
     } finally {
       setLoading(false);
@@ -294,24 +352,11 @@ export default function NewOrderPage() {
       )
       .map((s) => {
         // Backend sends prices with full markup already applied in NGN
-        const isTextVerified = providers
-          .find((p) => p.id === selectedProvider)
-          ?.name?.toLowerCase()
-          ?.includes("textverified");
-
-        let priceNgn = 0;
-        let priceUsd = 0;
-
-        if (isTextVerified) {
-          // TextVerified: Use dynamically fetched NGN price (already includes markup)
-          const tvNgn = servicePrices[selectedService];
-          priceNgn = tvNgn && tvNgn > 0 ? tvNgn : 0;
-          priceUsd = priceNgn > 0 && usdToNgn > 0 ? priceNgn / usdToNgn : 0;
-        } else {
-          // SMS-Man: Convert USD to NGN
-          priceUsd = (s as any).prices?.[selectedProvider] ?? s.price ?? 0;
-          priceNgn = Math.round(priceUsd * (usdToNgn || 0));
-        }
+        // All prices from the services API are in USD with admin markup applied
+        const priceUsd = (s as any).prices?.[selectedProvider] ?? s.price ?? 0;
+        const priceNgn = Math.ceil(
+          priceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
+        );
 
         return {
           code: s.country,
@@ -322,6 +367,12 @@ export default function NewOrderPage() {
         };
       });
 
+    console.log(
+      `[NewOrderPage] Available countries for ${selectedService}: ${countries.length}`,
+    );
+    if (countries.length > 0) {
+      console.log("[NewOrderPage] Sample country price:", countries[0]);
+    }
     return countries;
   }, [
     allServices,
@@ -329,8 +380,6 @@ export default function NewOrderPage() {
     selectedProvider,
     countryNameByCode,
     usdToNgn,
-    providers,
-    servicePrices,
   ]);
 
   // Filter services based on search
@@ -390,69 +439,81 @@ export default function NewOrderPage() {
   useEffect(() => {
     setSelectedService("");
     setSelectedCountry("");
+    setTvExactPrice(null);
   }, [selectedProvider]);
 
   // Reset country when service changes
   useEffect(() => {
     setSelectedCountry("");
+    setTvExactPrice(null);
   }, [selectedService]);
 
-  // Debounced price fetcher
-  const fetchPrice = useMemo(() => {
-    const debounce = (func: (...args: any[]) => void, delay: number) => {
-      let timeout: NodeJS.Timeout;
-      return (...args: any[]) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func(...args), delay);
-      };
-    };
-
-    const getPrice = async (serviceName: string) => {
-      if (!serviceName || servicePrices[serviceName] !== undefined) return;
-
-      setIsPriceLoading((prev) => ({ ...prev, [serviceName]: true }));
-      try {
-        const res = await api.getTextVerifiedPrice(serviceName);
-        if (res.ok && res.data.price > 0) {
-          setServicePrices((prev) => ({
-            ...prev,
-            [serviceName]: res.data.price,
-          }));
-        } else {
-          // Cache failure locally to avoid re-fetching
-          setServicePrices((prev) => ({ ...prev, [serviceName]: -1 }));
-        }
-      } catch (e) {
-        console.error(`Failed to fetch price for ${serviceName}`, e);
-        setServicePrices((prev) => ({ ...prev, [serviceName]: -1 }));
-      } finally {
-        setIsPriceLoading((prev) => ({ ...prev, [serviceName]: false }));
-      }
-    };
-
-    return debounce(getPrice, 300);
-  }, [servicePrices]);
-
-  // Ensure TextVerified price loads when a service is selected
+  // Lazily fetch exact TextVerified price when a Panda service is selected
   useEffect(() => {
-    const provider = providers.find((p) => p.id === selectedProvider);
-    const isTextVerified = provider?.name
-      ?.toLowerCase()
-      ?.includes("textverified");
-    if (isTextVerified && selectedService) {
-      const tvUsd = servicePrices[selectedService];
-      if (tvUsd === undefined) {
-        // Trigger debounced fetch for the selected service code
-        fetchPrice(selectedService);
-      }
+    if (selectedProvider !== "panda" || !selectedService) {
+      setTvExactPrice(null);
+      return;
     }
-  }, [selectedProvider, selectedService, providers, servicePrices, fetchPrice]);
+
+    // Abort any in-flight request
+    tvPriceAbortRef.current?.abort();
+    const controller = new AbortController();
+    tvPriceAbortRef.current = controller;
+
+    const fetchTvPrice = async () => {
+      setTvPriceLoading(true);
+      try {
+        console.log(
+          `[NewOrderPage] Fetching exact TV price for ${selectedService}...`,
+        );
+        const res = await fetch(
+          `/api/providers/textverified/price?serviceName=${encodeURIComponent(selectedService)}`,
+          {
+            signal: controller.signal,
+          },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const priceNgn = json?.data?.price;
+        const priceUsd = json?.data?.finalUsd;
+        if (priceUsd && priceUsd > 0) {
+          console.log(
+            `[NewOrderPage] Exact TV price: $${priceUsd} (₦${priceNgn})`,
+          );
+          setTvExactPrice(priceUsd);
+        } else {
+          console.warn(
+            `[NewOrderPage] TV price endpoint returned no valid price`,
+          );
+        }
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          console.warn(`[NewOrderPage] Failed to fetch TV price:`, err);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setTvPriceLoading(false);
+        }
+      }
+    };
+
+    fetchTvPrice();
+    return () => controller.abort();
+  }, [selectedProvider, selectedService]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
+    console.log("[NewOrderPage] ========== SUBMIT ORDER ==========");
+    console.log("[NewOrderPage] Selected:", {
+      service: selectedService,
+      country: selectedCountry,
+      provider: selectedProvider,
+    });
+
     if (!selectedService || !selectedCountry || !selectedProvider) {
+      console.error("[NewOrderPage] Validation failed: missing selection");
       toast.api.validationError("Please select service, country, and provider");
       setError("Please select service, country, and provider");
       return;
@@ -466,12 +527,29 @@ export default function NewOrderPage() {
     );
 
     if (!service) {
+      console.error("[NewOrderPage] Service not found in allServices for:", {
+        code: selectedService,
+        country: selectedCountry,
+        provider: selectedProvider,
+      });
       toast.error("Service not found", "Please try selecting again.");
       setError("Service not found");
       return;
     }
 
-    if (balance < Math.round(service.price * (usdToNgn || 0))) {
+    console.log("[NewOrderPage] Found service:", {
+      code: service.code,
+      name: service.name,
+      price: service.price,
+      prices: (service as any).prices,
+    });
+
+    if (balance < currentPriceNgn) {
+      console.error("[NewOrderPage] Insufficient balance:", {
+        balance,
+        required: currentPriceNgn,
+        deficit: currentPriceNgn - balance,
+      });
       toast.payment.insufficientBalance();
       setError(
         `Insufficient balance. You need ₦${currentPriceNgn.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
@@ -488,7 +566,17 @@ export default function NewOrderPage() {
       // Always charge in NGN (backend stores and operates in NGN)
       const price = currentPriceNgn;
 
+      console.log("[NewOrderPage] Order price calculation:", {
+        servicePrice_USD: service.price,
+        providerPrice_USD: (service as any)?.prices?.[selectedProvider],
+        exchangeRate_USD_NGN: usdToNgn,
+        finalPrice_NGN: price,
+        providerName: provider?.name,
+        providerDisplayName: provider?.displayName,
+      });
+
       if (!price || price <= 0) {
+        console.error("[NewOrderPage] Price is 0 or invalid:", price);
         setError(
           "Could not determine the price for this service. Please try again.",
         );
@@ -496,38 +584,52 @@ export default function NewOrderPage() {
         return;
       }
 
-      const response = await api.createOrder({
-        serviceCode: selectedService,
-        country: selectedCountry,
-        provider: provider?.name,
-        price: price, // NGN amount
-      });
-      console.log("[NewOrderPage] Creating order with pricing:", {
+      console.log("[NewOrderPage] Sending createOrder API call:", {
         serviceCode: selectedService,
         country: selectedCountry,
         provider: provider?.name,
         price_ngn: price,
       });
 
+      const response = await api.createOrder({
+        serviceCode: selectedService,
+        country: selectedCountry,
+        provider: provider?.name,
+        price: price, // NGN amount
+      });
+
+      console.log(
+        "[NewOrderPage] createOrder response:",
+        JSON.stringify(response, null, 2),
+      );
+
       if (response.ok) {
+        console.log(
+          "[NewOrderPage] Order created successfully:",
+          response.data,
+        );
         toast.order.created(response.data.orderNumber);
         router.push(`/orders/${response.data.orderId}`);
       } else {
+        console.error("[NewOrderPage] Order creation failed:", response);
         toast.order.failed(response.error || "Failed to create order");
         setError(response.error || "Failed to create order");
       }
     } catch (err: unknown) {
+      console.error("[NewOrderPage] Order creation exception:", err);
       let message = "Failed to create order. Please try again.";
       if (typeof err === "object" && err && "response" in err) {
         const e = err as {
           response?: { data?: { error?: { message: string } } };
         };
+        console.error("[NewOrderPage] Error response data:", e.response?.data);
         message = e.response?.data?.error?.message || message;
       }
       toast.order.failed(message);
       setError(message);
     } finally {
       setCreating(false);
+      console.log("[NewOrderPage] ========== SUBMIT ORDER END ==========");
     }
   };
 
@@ -545,47 +647,43 @@ export default function NewOrderPage() {
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
 
-  // Backend returns prices with full markup already applied
-  const isTextVerifiedCurrent = currentProvider?.name
-    ?.toLowerCase()
-    ?.includes("textverified");
+  // Price computation:
+  // - SMS-Man (Lion): full priced from services API (admin markup already applied)
+  // - TextVerified (Panda): uses lazily fetched exact price if available, else estimate from services API
+  const estimatedPriceUsd =
+    (currentService as any)?.prices?.[selectedProvider] ??
+    currentService?.price ??
+    0;
+  const currentPriceUsd =
+    selectedProvider === "panda" && tvExactPrice !== null
+      ? tvExactPrice
+      : estimatedPriceUsd;
+  const currentPriceNgn = Math.ceil(
+    currentPriceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
+  );
 
-  let currentPriceNgn = 0;
-  let currentPriceUsd = 0;
-
-  if (isTextVerifiedCurrent) {
-    // TextVerified: Use NGN price directly from API (already includes markup)
-    const tvNgn = selectedService ? servicePrices[selectedService] : undefined;
-    currentPriceNgn = tvNgn && tvNgn > 0 ? tvNgn : 0;
-    currentPriceUsd =
-      currentPriceNgn > 0 && usdToNgn > 0 ? currentPriceNgn / usdToNgn : 0;
-  } else {
-    // SMS-Man: Convert USD to NGN
-    currentPriceUsd =
-      (currentService as any)?.prices?.[selectedProvider] ??
-      currentService?.price ??
-      0;
-    currentPriceNgn = Math.round(currentPriceUsd * (usdToNgn || 0));
-  }
+  console.log("[NewOrderPage] Current price computation:", {
+    selectedService,
+    selectedCountry,
+    selectedProvider: currentProvider?.name,
+    rawPrice: currentService?.price,
+    providerPrice: (currentService as any)?.prices?.[selectedProvider],
+    currentPriceUsd,
+    usdToNgn,
+    currentPriceNgn,
+  });
 
   const insufficientBalance = currentService && balance < currentPriceNgn;
 
   // Virtualized row renderer for services list
+  // Note: This is a render function, NOT a React component - do NOT use hooks inside it
   const renderServiceRow = ({ index, style }: ListChildComponentProps) => {
     const service = filteredServices[index];
     const isSelected = selectedService === service.code;
-    const price = servicePrices[service.code];
-    const isLoadingPrice = isPriceLoading[service.code];
 
-    // Fetch price when the row is rendered
-    useEffect(() => {
-      if (
-        service.providers.some((p) => p.name.includes("textverified")) &&
-        price === undefined
-      ) {
-        fetchPrice(service.code);
-      }
-    }, [service.code, price]);
+    // All prices come from the services API in USD with admin markup
+    const priceUsd = service.price || 0;
+    const priceNgn = Math.ceil(priceUsd * (usdToNgn || FALLBACK_USD_TO_NGN));
 
     return (
       <div
@@ -596,6 +694,15 @@ export default function NewOrderPage() {
         <button
           type="button"
           onClick={() => {
+            console.log(
+              "[NewOrderPage] Selected service:",
+              service.code,
+              service.name,
+              "price USD:",
+              priceUsd,
+              "price NGN:",
+              priceNgn,
+            );
             setSelectedService(service.code);
             setServiceDialogOpen(false);
           }}
@@ -608,10 +715,10 @@ export default function NewOrderPage() {
           </div>
           <span className="font-medium truncate flex-1">{service.name}</span>
           <div className="flex-shrink-0">
-            {isLoadingPrice ? (
-              <Spinner className="w-4 h-4" />
-            ) : price && price > 0 ? (
-              <div className="font-mono text-sm">₦{price.toLocaleString()}</div>
+            {priceNgn > 0 ? (
+              <div className="font-mono text-sm">
+                ₦{priceNgn.toLocaleString()}
+              </div>
             ) : (
               <div className="text-xs text-muted-foreground">✅</div>
             )}
@@ -1153,6 +1260,7 @@ export default function NewOrderPage() {
                 className="w-full h-12 text-base lg:hidden"
                 disabled={
                   creating ||
+                  tvPriceLoading ||
                   insufficientBalance ||
                   !selectedService ||
                   !selectedCountry ||
@@ -1163,6 +1271,11 @@ export default function NewOrderPage() {
                   <>
                     <Spinner className="mr-2 h-4 w-4" />
                     Processing...
+                  </>
+                ) : tvPriceLoading ? (
+                  <>
+                    <Spinner className="mr-2 h-4 w-4" />
+                    Loading price...
                   </>
                 ) : insufficientBalance ? (
                   "Insufficient Balance"
@@ -1250,13 +1363,22 @@ export default function NewOrderPage() {
                   <div className="pt-3 border-t-2 border-gray-300 dark:border-gray-600 mt-3">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-base">Total:</span>
-                      <span
-                        className={`font-bold text-2xl ${
-                          insufficientBalance ? "text-red-600" : "text-primary"
-                        }`}
-                      >
-                        ₦{currentPriceNgn.toLocaleString()}
-                      </span>
+                      {tvPriceLoading ? (
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                          <Spinner className="h-4 w-4" />
+                          Loading...
+                        </span>
+                      ) : (
+                        <span
+                          className={`font-bold text-2xl ${
+                            insufficientBalance
+                              ? "text-red-600"
+                              : "text-primary"
+                          }`}
+                        >
+                          ₦{currentPriceNgn.toLocaleString()}
+                        </span>
+                      )}
                     </div>
                     {insufficientBalance && (
                       <div className="mt-3 p-3 bg-red-50 dark:bg-red-950 rounded-lg">
@@ -1279,6 +1401,7 @@ export default function NewOrderPage() {
                   className="w-full h-12 text-base mt-5 shadow-lg"
                   disabled={
                     creating ||
+                    tvPriceLoading ||
                     insufficientBalance ||
                     !selectedService ||
                     !selectedCountry ||
@@ -1289,6 +1412,11 @@ export default function NewOrderPage() {
                     <>
                       <Spinner className="mr-2 h-4 w-4" />
                       Processing...
+                    </>
+                  ) : tvPriceLoading ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Loading price...
                     </>
                   ) : insufficientBalance ? (
                     "Insufficient Balance"
