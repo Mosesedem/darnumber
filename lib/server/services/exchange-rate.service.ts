@@ -7,6 +7,8 @@ interface ExchangeRateResponse {
 
 const OPEN_EXCHANGE_RATES_API_ID = process.env.OPEN_EXCHANGE_RATES_API_ID;
 const CACHE_DURATION_HOURS = 8; // Refresh every 8 hours (3 times daily)
+const FALLBACK_USD_TO_NGN = 1600;
+const FALLBACK_USD_TO_RUB = 100;
 
 export class ExchangeRateService {
   /**
@@ -14,7 +16,7 @@ export class ExchangeRateService {
    */
   static async getRate(
     fromCurrency: string,
-    toCurrency: string
+    toCurrency: string,
   ): Promise<number> {
     try {
       // Try to get from database cache
@@ -39,8 +41,8 @@ export class ExchangeRateService {
           `[ExchangeRate] ✓ Using cached rate: 1 ${fromCurrency} = ${
             cached.rate
           } ${toCurrency} (age: ${Math.round(
-            (now.getTime() - cached.updatedAt.getTime()) / (1000 * 60)
-          )}min)`
+            (now.getTime() - cached.updatedAt.getTime()) / (1000 * 60),
+          )}min)`,
         );
         return Number(cached.rate);
       }
@@ -49,7 +51,7 @@ export class ExchangeRateService {
       console.log(
         `[ExchangeRate] Cache ${
           cached ? "stale" : "miss"
-        } for ${fromCurrency}/${toCurrency}, fetching from API...`
+        } for ${fromCurrency}/${toCurrency}, fetching from API...`,
       );
       const rate = await this.fetchRateFromAPI(fromCurrency, toCurrency);
 
@@ -73,13 +75,13 @@ export class ExchangeRateService {
       });
 
       console.log(
-        `[ExchangeRate] ✓ Cached new rate: 1 ${fromCurrency} = ${rate} ${toCurrency}`
+        `[ExchangeRate] ✓ Cached new rate: 1 ${fromCurrency} = ${rate} ${toCurrency}`,
       );
       return rate;
     } catch (error) {
       console.error(
         `[ExchangeRate] Error getting rate for ${fromCurrency}/${toCurrency}:`,
-        error
+        error,
       );
       // Try to return stale cache as fallback, but don't fail if DB is unavailable
       try {
@@ -94,14 +96,14 @@ export class ExchangeRateService {
 
         if (staleCache) {
           console.warn(
-            `[ExchangeRate] ⚠ Using stale cache as fallback: ${staleCache.rate}`
+            `[ExchangeRate] ⚠ Using stale cache as fallback: ${staleCache.rate}`,
           );
           return Number(staleCache.rate);
         }
       } catch (dbErr) {
         console.warn(
           `[ExchangeRate] ⚠ Skipping stale cache lookup due to DB error:`,
-          dbErr
+          dbErr,
         );
       }
 
@@ -115,7 +117,7 @@ export class ExchangeRateService {
    */
   private static async fetchRateFromAPI(
     fromCurrency: string,
-    toCurrency: string
+    toCurrency: string,
   ): Promise<number> {
     const url = `https://openexchangerates.org/api/latest.json?app_id=${OPEN_EXCHANGE_RATES_API_ID}&base=${fromCurrency}`;
 
@@ -125,7 +127,7 @@ export class ExchangeRateService {
 
     if (!response.ok) {
       throw new Error(
-        `Open Exchange Rates API error: ${response.status} ${response.statusText}`
+        `Open Exchange Rates API error: ${response.status} ${response.statusText}`,
       );
     }
 
@@ -143,20 +145,36 @@ export class ExchangeRateService {
    */
   private static getFallbackRate(
     fromCurrency: string,
-    toCurrency: string
+    toCurrency: string,
   ): number {
     console.error(
-      `[ExchangeRate] ✗ Using hardcoded fallback for ${fromCurrency}/${toCurrency}`
+      `[ExchangeRate] ✗ Using hardcoded fallback for ${fromCurrency}/${toCurrency}`,
     );
 
-    const fallbacks: Record<string, Record<string, number>> = {
-      USD: {
-        NGN: 1500,
-        RUB: 100,
-      },
+    if (fromCurrency === toCurrency) return 1;
+
+    const ratesPerUsd: Record<string, number> = {
+      USD: 1,
+      NGN: FALLBACK_USD_TO_NGN,
+      RUB: FALLBACK_USD_TO_RUB,
     };
 
-    return fallbacks[fromCurrency]?.[toCurrency] || 1;
+    const fromPerUsd = ratesPerUsd[fromCurrency];
+    const toPerUsd = ratesPerUsd[toCurrency];
+
+    if (!fromPerUsd || !toPerUsd) {
+      return 1;
+    }
+
+    if (fromCurrency === "USD") {
+      return toPerUsd;
+    }
+
+    if (toCurrency === "USD") {
+      return 1 / fromPerUsd;
+    }
+
+    return toPerUsd / fromPerUsd;
   }
 
   /**
@@ -176,7 +194,7 @@ export class ExchangeRateService {
       } catch (error) {
         console.error(
           `[ExchangeRate] Failed to refresh ${pair.from}/${pair.to}:`,
-          error
+          error,
         );
       }
     }

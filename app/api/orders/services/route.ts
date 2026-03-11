@@ -6,8 +6,13 @@ import { SMSManService } from "@/lib/server/services/order.service";
 import { TextVerifiedService } from "@/lib/server/services/textverified.service";
 import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service";
 import { PricingService } from "@/lib/server/services/pricing.service";
+import { getRedisService } from "@/lib/server/services/redis.service";
 
 export const runtime = "nodejs";
+
+const redis = getRedisService();
+const SERVICES_CACHE_KEY = "orders:services:aggregated:v1";
+const SERVICES_CACHE_TTL_SECONDS = 5 * 60;
 
 export async function GET(req: NextRequest) {
   console.log("\n╔════════════════════════════════════════════════╗");
@@ -18,11 +23,17 @@ export async function GET(req: NextRequest) {
     const authResult = await requireAuth();
     console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated`);
 
+    const cachedServices = await redis.get(SERVICES_CACHE_KEY);
+    if (cachedServices) {
+      console.log("[Cache] ✓ Returning cached aggregated services payload");
+      return json({ ok: true, data: JSON.parse(cachedServices) });
+    }
+
     console.log("[Rates] Fetching exchange rates from cache/API...");
     const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
     const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
     console.log(
-      `[Rates] ✓ 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`
+      `[Rates] ✓ 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
     );
 
     const providers = [
@@ -43,7 +54,7 @@ export async function GET(req: NextRequest) {
     ];
 
     console.log(
-      `[Providers] Available: ${providers.map((p) => p.name).join(", ")}`
+      `[Providers] Available: ${providers.map((p) => p.name).join(", ")}`,
     );
 
     const servicesMap = new Map<string, any>();
@@ -54,12 +65,12 @@ export async function GET(req: NextRequest) {
       const smsManService = new SMSManService();
       smsManServices = await smsManService.getAvailableServices();
       console.log(
-        `[SMSMan] ✓ Fetched ${smsManServices.length} services (RUB pricing)`
+        `[SMSMan] ✓ Fetched ${smsManServices.length} services (RUB pricing)`,
       );
     } catch (err) {
       console.error(
         "[SMSMan] ✗ Error:",
-        err instanceof Error ? err.message : err
+        err instanceof Error ? err.message : err,
       );
       smsManServices = [];
     }
@@ -70,12 +81,12 @@ export async function GET(req: NextRequest) {
       const textVerifiedService = new TextVerifiedService();
       tvServices = await textVerifiedService.getAvailableServices();
       console.log(
-        `[TextVerified] ✓ Fetched ${tvServices.length} services (USD pricing)`
+        `[TextVerified] ✓ Fetched ${tvServices.length} services (USD pricing)`,
       );
     } catch (err) {
       console.error(
         "[TextVerified] ✗ Error:",
-        err instanceof Error ? err.message : err
+        err instanceof Error ? err.message : err,
       );
       tvServices = [];
     }
@@ -84,7 +95,7 @@ export async function GET(req: NextRequest) {
       console.error("[Error] No services available from any provider");
       return error(
         "No services available from providers. Please check API keys and try again.",
-        503
+        503,
       );
     }
 
@@ -93,7 +104,7 @@ export async function GET(req: NextRequest) {
         smsManServices.length
       } + TextVerified ${tvServices.length} = ${
         smsManServices.length + tvServices.length
-      }`
+      }`,
     );
 
     // Collect all services for batch pricing calculation using admin rules
@@ -111,7 +122,7 @@ export async function GET(req: NextRequest) {
 
     // Process SMS-Man services: convert RUB to USD base price
     console.log(
-      "[Processing] Collecting SMS-Man base prices for admin pricing rules..."
+      "[Processing] Collecting SMS-Man base prices for admin pricing rules...",
     );
     smsManServices.forEach((service: any, idx: number) => {
       const priceRUB = service.price; // SMS-Man returns prices in Russian Rubles
@@ -119,7 +130,7 @@ export async function GET(req: NextRequest) {
 
       if (idx === 0) {
         console.log(
-          `[SMSMan] Sample base: ${priceRUB} RUB (provider) → ${baseUSD} USD (before admin markup)`
+          `[SMSMan] Sample base: ${priceRUB} RUB (provider) → ${baseUSD} USD (before admin markup)`,
         );
       }
 
@@ -138,14 +149,14 @@ export async function GET(req: NextRequest) {
 
     // Process TextVerified services: USD base price
     console.log(
-      "[Processing] Collecting TextVerified base prices for admin pricing rules..."
+      "[Processing] Collecting TextVerified base prices for admin pricing rules...",
     );
     tvServices.forEach((service: any, idx: number) => {
       const baseUSD = service.price || 0;
 
       if (idx === 0 && tvServices.length > 0) {
         console.log(
-          `[TextVerified] Sample base: ${service.name} = ${baseUSD} USD (before admin markup)`
+          `[TextVerified] Sample base: ${service.name} = ${baseUSD} USD (before admin markup)`,
         );
       }
 
@@ -169,18 +180,17 @@ export async function GET(req: NextRequest) {
 
     // Apply admin pricing rules to all services in batch
     console.log("[Pricing] Applying admin pricing rules to all services...");
-    const pricingResults = await PricingService.calculatePrices(
-      servicesToPrice
-    );
+    const pricingResults =
+      await PricingService.calculatePrices(servicesToPrice);
 
     // Log first pricing result for debugging
     if (pricingResults.length > 0) {
       const firstResult = pricingResults[0];
       console.log(
         `[Pricing] Sample result: base $${firstResult.basePrice.toFixed(
-          4
+          4,
         )} + profit $${firstResult.profit.toFixed(
-          4
+          4,
         )} = $${firstResult.finalPrice.toFixed(4)}`,
         firstResult.ruleApplied
           ? `(Rule: ${firstResult.ruleApplied.profitType} ${
@@ -188,7 +198,7 @@ export async function GET(req: NextRequest) {
             }${
               firstResult.ruleApplied.profitType === "PERCENTAGE" ? "%" : " USD"
             })`
-          : "(Default 20% markup)"
+          : "(Default 20% markup)",
       );
     }
 
@@ -250,6 +260,12 @@ export async function GET(req: NextRequest) {
       providers,
     };
 
+    await redis.set(
+      SERVICES_CACHE_KEY,
+      JSON.stringify(result),
+      SERVICES_CACHE_TTL_SECONDS,
+    );
+
     console.log("\n[Summary] ✓ Aggregation complete:");
     console.log(`  • Total unique services: ${result.services.length}`);
     console.log(`  • Providers: ${result.providers.length}`);
@@ -259,7 +275,7 @@ export async function GET(req: NextRequest) {
     if (result.services.length > 0) {
       console.log(
         "  • Sample service:",
-        JSON.stringify(result.services[0], null, 2)
+        JSON.stringify(result.services[0], null, 2),
       );
     }
     console.log("╚════════════════════════════════════════════════╝\n");

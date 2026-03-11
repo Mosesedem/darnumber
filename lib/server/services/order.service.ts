@@ -130,47 +130,79 @@ export class OrderService {
       return newOrder;
     });
 
-    // 5. Request number from the provider (outside the main DB transaction)
-    try {
-      const providerService = this.getProviderService(selectedProvider.name);
-      console.log(
-        `[OrderService] Requesting number from ${selectedProvider.name}...`,
-      );
+    // 5. Request number with provider failover (outside the main DB transaction)
+    const providerErrors: Array<{ provider: string; message: string }> = [];
 
-      const providerOrder = await providerService.requestNumber(
-        serviceCode,
-        country,
-        order.id, // Pass orderId for logging and context
-      );
+    for (const provider of providers) {
+      try {
+        const providerService = this.getProviderService(provider.name);
+        console.log(
+          `[OrderService] Requesting number from ${provider.name}...`,
+        );
 
-      // Update order with provider details
-      const updatedOrder = await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          externalId: providerOrder.id,
-          phoneNumber: providerOrder.phoneNumber,
-          cost: providerOrder.cost
-            ? new Prisma.Decimal(providerOrder.cost)
-            : undefined,
-          status: "WAITING_FOR_SMS",
-        },
-      });
+        const providerOrder = await providerService.requestNumber(
+          serviceCode,
+          country,
+          order.id,
+        );
 
-      return {
-        orderId: updatedOrder.id,
-        phoneNumber: updatedOrder.phoneNumber,
-        status: updatedOrder.status,
-        expiresAt: updatedOrder.expiresAt,
-      };
-    } catch (e) {
-      console.error(
-        `[OrderService] Provider request failed for order ${order.id}. Refunding...`,
-        e,
-      );
-      // If provider fails, refund the order
-      await this.refundOrder(order.id, "PROVIDER_FAILURE");
-      throw new Error("Failed to secure a number from the provider.");
+        const updatedOrder = await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            providerId: provider.id,
+            externalId: providerOrder.id,
+            phoneNumber: providerOrder.phoneNumber,
+            cost: providerOrder.cost
+              ? new Prisma.Decimal(providerOrder.cost)
+              : undefined,
+            status: "WAITING_FOR_SMS",
+          },
+        });
+
+        return {
+          orderId: updatedOrder.id,
+          phoneNumber: updatedOrder.phoneNumber,
+          status: updatedOrder.status,
+          expiresAt: updatedOrder.expiresAt,
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        providerErrors.push({ provider: provider.name, message });
+        console.warn(
+          `[OrderService] Provider ${provider.name} failed for order ${order.id}: ${message}`,
+        );
+      }
     }
+
+    console.error(
+      `[OrderService] All providers failed for order ${order.id}. Refunding...`,
+      providerErrors,
+    );
+    await this.refundOrder(order.id, "PROVIDER_FAILURE");
+
+    const allUnavailable =
+      providerErrors.length > 0 &&
+      providerErrors.every((entry) =>
+        this.isProviderUnavailableError(entry.message),
+      );
+
+    if (allUnavailable) {
+      throw new Error(
+        "No providers currently have stock for this service. Please try again shortly.",
+      );
+    }
+
+    throw new Error("Failed to secure a number from the provider.");
+  }
+
+  private isProviderUnavailableError(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("unavailable") ||
+      normalized.includes("out of stock") ||
+      normalized.includes("sold out") ||
+      normalized.includes("no stock")
+    );
   }
 
   private getProviderService(

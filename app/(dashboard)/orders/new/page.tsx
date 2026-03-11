@@ -52,6 +52,11 @@ interface Service {
   ui?: ServiceUi;
 }
 
+const FALLBACK_USD_TO_NGN = 1600;
+const FALLBACK_USD_TO_RUB = 100;
+const FALLBACK_RUB_TO_USD = 1 / FALLBACK_USD_TO_RUB;
+const FALLBACK_RUB_TO_NGN = FALLBACK_USD_TO_NGN / FALLBACK_USD_TO_RUB;
+
 export default function NewOrderPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -71,13 +76,13 @@ export default function NewOrderPage() {
   const [countryNameByCode, setCountryNameByCode] = useState<
     Map<string, string>
   >(new Map());
-  const [usdToNgn, setUsdToNgn] = useState<number>(0);
-  const [rubToUsd, setRubToUsd] = useState<number>(0);
+  const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
+  const [rubToUsd, setRubToUsd] = useState<number>(FALLBACK_RUB_TO_USD);
   const [servicePrices, setServicePrices] = useState<Record<string, number>>(
-    {}
+    {},
   );
   const [isPriceLoading, setIsPriceLoading] = useState<Record<string, boolean>>(
-    {}
+    {},
   );
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
@@ -149,35 +154,59 @@ export default function NewOrderPage() {
     const loadRates = async () => {
       try {
         const res = await fetch(
-          "https://openexchangerates.org/api/latest.json?app_id=5e1de33c06ec43ad8047ef4b9fc163c4"
+          "https://openexchangerates.org/api/latest.json?app_id=5e1de33c06ec43ad8047ef4b9fc163c4",
         );
         if (!res.ok) throw new Error("Failed to fetch exchange rates");
         const data = (await res.json()) as {
           rates?: Record<string, number>;
           base?: string;
         };
-        const ngnRate = data?.rates?.NGN || 0;
-        const rubRate = data?.rates?.RUB || 0;
+        const ngnRate = data?.rates?.NGN;
+        const rubRate = data?.rates?.RUB;
+
+        const usdToNgnRate =
+          typeof ngnRate === "number" && ngnRate > 0
+            ? ngnRate
+            : FALLBACK_USD_TO_NGN;
+        const usdToRubRate =
+          typeof rubRate === "number" && rubRate > 0
+            ? rubRate
+            : FALLBACK_USD_TO_RUB;
 
         // Calculate RUB→USD (since base is USD, RUB rate is RUB per 1 USD)
         // So 1 RUB = 1/rubRate USD
-        const rubToUsdRate = rubRate > 0 ? 1 / rubRate : 0;
+        const rubToUsdRate = 1 / usdToRubRate;
+        const rubToNgnRate = rubToUsdRate * usdToNgnRate;
 
-        setUsdToNgn(ngnRate);
+        setUsdToNgn(usdToNgnRate);
         setRubToUsd(rubToUsdRate);
+
+        if (
+          (typeof ngnRate !== "number" || ngnRate <= 0) &&
+          (typeof rubRate !== "number" || rubRate <= 0)
+        ) {
+          console.warn("[NewOrderPage] Using fallback exchange rates", {
+            "USD → NGN": FALLBACK_USD_TO_NGN,
+            "USD → RUB": FALLBACK_USD_TO_RUB,
+            "RUB → NGN": FALLBACK_RUB_TO_NGN,
+          });
+        }
 
         console.log("[NewOrderPage] 💱 Exchange rates loaded:", {
           base: data.base || "USD",
-          "USD → NGN": ngnRate,
+          "USD → NGN": usdToNgnRate,
           "RUB → USD": rubToUsdRate.toFixed(6),
-          "1 RUB": `$${rubToUsdRate.toFixed(4)} = ₦${(
-            rubToUsdRate * ngnRate
-          ).toFixed(2)}`,
+          "1 RUB": `$${rubToUsdRate.toFixed(4)} = ₦${rubToNgnRate.toFixed(2)}`,
         });
       } catch (e) {
-        console.error("[NewOrderPage] Failed to fetch exchange rates:", e);
-        setUsdToNgn(0);
-        setRubToUsd(0);
+        console.warn("[NewOrderPage] Failed to fetch exchange rates:", e);
+        setUsdToNgn(FALLBACK_USD_TO_NGN);
+        setRubToUsd(FALLBACK_RUB_TO_USD);
+        console.warn("[NewOrderPage] Applied fallback exchange rates", {
+          "USD → NGN": FALLBACK_USD_TO_NGN,
+          "USD → RUB": FALLBACK_USD_TO_RUB,
+          "RUB → NGN": FALLBACK_RUB_TO_NGN,
+        });
       }
     };
     loadRates();
@@ -196,7 +225,7 @@ export default function NewOrderPage() {
       const providersFromApi: Provider[] = servicesRes?.data?.providers || [];
 
       console.log(
-        `[NewOrderPage] Loaded ${services.length} services from ${providersFromApi.length} providers`
+        `[NewOrderPage] Loaded ${services.length} services from ${providersFromApi.length} providers`,
       );
 
       setAllServices(services);
@@ -243,7 +272,7 @@ export default function NewOrderPage() {
 
     allServices.forEach((service) => {
       const hasProvider = service.providers.some(
-        (p) => p.id === selectedProvider
+        (p) => p.id === selectedProvider,
       );
       if (hasProvider && !serviceMap.has(service.code)) {
         serviceMap.set(service.code, service);
@@ -261,7 +290,7 @@ export default function NewOrderPage() {
       .filter(
         (s) =>
           s.code === selectedService &&
-          s.providers.some((p) => p.id === selectedProvider)
+          s.providers.some((p) => p.id === selectedProvider),
       )
       .map((s) => {
         // Backend sends prices with full markup already applied in NGN
@@ -433,7 +462,7 @@ export default function NewOrderPage() {
       (s) =>
         s.code === selectedService &&
         s.country === selectedCountry &&
-        s.providers.some((p) => p.id === selectedProvider)
+        s.providers.some((p) => p.id === selectedProvider),
     );
 
     if (!service) {
@@ -447,7 +476,7 @@ export default function NewOrderPage() {
       setError(
         `Insufficient balance. You need ₦${currentPriceNgn.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
           currentPriceNgn - balance
-        ).toLocaleString()} to your wallet.`
+        ).toLocaleString()} to your wallet.`,
       );
       return;
     }
@@ -461,7 +490,7 @@ export default function NewOrderPage() {
 
       if (!price || price <= 0) {
         setError(
-          "Could not determine the price for this service. Please try again."
+          "Could not determine the price for this service. Please try again.",
         );
         setCreating(false);
         return;
@@ -512,7 +541,7 @@ export default function NewOrderPage() {
   }
 
   const currentService = allServices.find(
-    (s) => s.code === selectedService && s.country === selectedCountry
+    (s) => s.code === selectedService && s.country === selectedCountry,
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
 
@@ -719,13 +748,13 @@ export default function NewOrderPage() {
                                 .includes("sms-man")
                                 ? "bg-amber-100 dark:bg-amber-900"
                                 : currentProvider.name
-                                    .toLowerCase()
-                                    .includes("panda") ||
-                                  currentProvider.name
-                                    .toLowerCase()
-                                    .includes("textverified")
-                                ? "bg-green-100 dark:bg-green-900"
-                                : "bg-primary/10"
+                                      .toLowerCase()
+                                      .includes("panda") ||
+                                    currentProvider.name
+                                      .toLowerCase()
+                                      .includes("textverified")
+                                  ? "bg-green-100 dark:bg-green-900"
+                                  : "bg-primary/10"
                             }`}
                           >
                             {currentProvider.name
@@ -736,13 +765,13 @@ export default function NewOrderPage() {
                               .includes("sms-man")
                               ? "🦁"
                               : currentProvider.name
-                                  .toLowerCase()
-                                  .includes("panda") ||
-                                currentProvider.name
-                                  .toLowerCase()
-                                  .includes("textverified")
-                              ? "🐼"
-                              : currentProvider.displayName.charAt(0)}
+                                    .toLowerCase()
+                                    .includes("panda") ||
+                                  currentProvider.name
+                                    .toLowerCase()
+                                    .includes("textverified")
+                                ? "🐼"
+                                : currentProvider.displayName.charAt(0)}
                           </div>
                           <div>
                             <p className="font-semibold">
@@ -780,9 +809,9 @@ export default function NewOrderPage() {
                               name.toLowerCase().includes("sms-man")
                                 ? "🦁"
                                 : name.toLowerCase().includes("panda") ||
-                                  name.toLowerCase().includes("textverified")
-                                ? "🐼"
-                                : provider.displayName.charAt(0))
+                                    name.toLowerCase().includes("textverified")
+                                  ? "🐼"
+                                  : provider.displayName.charAt(0))
                             );
                           };
 
@@ -826,7 +855,7 @@ export default function NewOrderPage() {
                                 <div className="flex items-center gap-3 flex-1">
                                   <div
                                     className={`w-14 h-14 rounded-lg flex items-center justify-center text-2xl font-bold flex-shrink-0 ${getProviderBg(
-                                      provider.cover
+                                      provider.cover,
                                     )}`}
                                   >
                                     {getProviderIcon(provider.name)}
@@ -868,9 +897,9 @@ export default function NewOrderPage() {
                           name.toLowerCase().includes("sms-man")
                             ? "🦁"
                             : name.toLowerCase().includes("panda") ||
-                              name.toLowerCase().includes("textverified")
-                            ? "🐼"
-                            : provider.displayName.charAt(0))
+                                name.toLowerCase().includes("textverified")
+                              ? "🐼"
+                              : provider.displayName.charAt(0))
                         );
                       };
 
@@ -923,7 +952,7 @@ export default function NewOrderPage() {
                           <div className="flex items-start gap-4">
                             <div
                               className={`w-16 h-16 rounded-xl flex items-center justify-center text-3xl font-bold flex-shrink-0 transition-all ${getProviderBg(
-                                provider.cover
+                                provider.cover,
                               )} ${
                                 selectedProvider === provider.id
                                   ? "text-white"
@@ -1065,10 +1094,10 @@ export default function NewOrderPage() {
                     {selectedCountry ? (
                       <span className="truncate">
                         {countryNameByCode.get(
-                          String(selectedCountry).toUpperCase()
+                          String(selectedCountry).toUpperCase(),
                         ) ||
                           availableCountries.find(
-                            (c) => c.code === selectedCountry
+                            (c) => c.code === selectedCountry,
                           )?.name ||
                           selectedCountry}
                       </span>
@@ -1208,7 +1237,7 @@ export default function NewOrderPage() {
                     <span className="text-muted-foreground">Country:</span>
                     <span className="font-semibold">
                       {countryNameByCode.get(
-                        String(currentService.country).toUpperCase()
+                        String(currentService.country).toUpperCase(),
                       ) || currentService.country}
                     </span>
                   </div>

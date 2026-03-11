@@ -118,7 +118,14 @@ export async function POST(req: NextRequest) {
     });
 
     const msg = e instanceof Error ? e.message : "Unexpected error";
-    const status = msg.includes("balance") ? 402 : 400;
+    const lowerMsg = msg.toLowerCase();
+    const status = msg.includes("balance")
+      ? 402
+      : lowerMsg.includes("no providers currently have stock") ||
+          lowerMsg.includes("out of stock") ||
+          lowerMsg.includes("unavailable")
+        ? 503
+        : 400;
     if (msg === "Unauthorized") {
       console.log("Returning 401 Unauthorized");
       return error("Unauthorized", 401);

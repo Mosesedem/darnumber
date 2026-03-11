@@ -11,14 +11,14 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retries = 3,
-  backoff = 300
+  backoff = 300,
 ): Promise<Response> {
   try {
     const res = await fetch(url, options);
     if (res.status === 429 && retries > 0) {
       const retryAfter = parseInt(res.headers.get("Retry-After") || "1");
       console.warn(
-        `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`
+        `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`,
       );
       await delay(retryAfter * 1000);
       return fetchWithRetry(url, options, retries - 1, backoff);
@@ -32,7 +32,7 @@ async function fetchWithRetry(
       console.warn(
         `[fetchWithRetry] Network error (${
           e.code || "FETCH_FAILED"
-        }). Retrying in ${backoff}ms... (${retries} retries left)`
+        }). Retrying in ${backoff}ms... (${retries} retries left)`,
       );
       await delay(backoff);
       return fetchWithRetry(url, options, retries - 1, backoff * 2);
@@ -44,15 +44,15 @@ async function fetchWithRetry(
 // TextVerified API interfaces
 interface TextVerifiedServiceData {
   serviceName: string;
-  capability: 'sms' | 'voice' | 'smsAndVoiceCombo';
+  capability: "sms" | "voice" | "smsAndVoiceCombo";
 }
 
 interface TextVerifiedPricingRequest {
   serviceName: string;
   areaCode: boolean;
   carrier: boolean;
-  numberType: 'mobile' | 'voip' | 'landline';
-  capability: 'sms' | 'voice' | 'smsAndVoiceCombo';
+  numberType: "mobile" | "voip" | "landline";
+  capability: "sms" | "voice" | "smsAndVoiceCombo";
 }
 
 interface TextVerifiedPricingResponse {
@@ -96,7 +96,7 @@ export class TextVerifiedService {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
-        `Failed to generate bearer token: ${response.status} - ${errorText}`
+        `Failed to generate bearer token: ${response.status} - ${errorText}`,
       );
     }
 
@@ -119,29 +119,36 @@ export class TextVerifiedService {
    * Uses /api/pub/v2/services endpoint with proper parameters
    */
   async getAvailableServices(
-    numberType: 'mobile' | 'voip' | 'landline' = 'mobile',
-    reservationType: 'renewable' | 'nonrenewable' | 'verification' = 'verification'
+    numberType: "mobile" | "voip" | "landline" = "mobile",
+    reservationType:
+      | "renewable"
+      | "nonrenewable"
+      | "verification" = "verification",
   ): Promise<TextVerifiedServiceData[]> {
     const cacheKey = `textverified:services:${numberType}:${reservationType}`;
-    
+
     // Check Redis cache first (cache for 1 hour)
     const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log(`[TextVerified] Using cached services for ${numberType}/${reservationType}`);
+      console.log(
+        `[TextVerified] Using cached services for ${numberType}/${reservationType}`,
+      );
       return JSON.parse(cached); // TypeScript: cached is string due to truthy check
     }
 
-    console.log(`[TextVerified] Fetching services for ${numberType}/${reservationType}...`);
+    console.log(
+      `[TextVerified] Fetching services for ${numberType}/${reservationType}...`,
+    );
 
     try {
       const bearerToken = await this.getBearerToken();
-      
+
       // Build URL with query parameters
       const params = new URLSearchParams({
         numberType,
         reservationType,
       });
-      
+
       const url = `${this.apiUrl}/services?${params}`;
       console.log(`[TextVerified] Requesting: ${url}`);
 
@@ -153,16 +160,22 @@ export class TextVerifiedService {
         },
       });
 
-      console.log(`[TextVerified] Services response: ${response.status} ${response.statusText}`);
+      console.log(
+        `[TextVerified] Services response: ${response.status} ${response.statusText}`,
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[TextVerified] API Error: ${response.status} - ${errorText}`);
-        throw new Error(`TextVerified API error: ${response.status} - ${errorText}`);
+        console.error(
+          `[TextVerified] API Error: ${response.status} - ${errorText}`,
+        );
+        throw new Error(
+          `TextVerified API error: ${response.status} - ${errorText}`,
+        );
       }
 
       const data = await response.json();
-      
+
       // Extract services array from response
       let services: TextVerifiedServiceData[] = [];
       if (Array.isArray(data)) {
@@ -178,32 +191,45 @@ export class TextVerifiedService {
       console.log(`[TextVerified] ✓ Fetched ${services.length} services`);
 
       // Validate service structure
-      const validatedServices = services.filter(service => 
-        service && 
-        typeof service.serviceName === 'string' && 
-        ['sms', 'voice', 'smsAndVoiceCombo', 'Voice', 'SMS', 'VOICE'].includes(service.capability)
+      const validatedServices = services.filter(
+        (service) =>
+          service &&
+          typeof service.serviceName === "string" &&
+          [
+            "sms",
+            "voice",
+            "smsAndVoiceCombo",
+            "Voice",
+            "SMS",
+            "VOICE",
+          ].includes(service.capability),
       );
 
       if (validatedServices.length !== services.length) {
-        console.warn(`[TextVerified] Filtered ${services.length - validatedServices.length} invalid services`);
+        console.warn(
+          `[TextVerified] Filtered ${services.length - validatedServices.length} invalid services`,
+        );
       }
 
       // Normalize capability values to lowercase for consistency
-      const normalizedServices = validatedServices.map(service => ({
+      const normalizedServices = validatedServices.map((service) => ({
         ...service,
-        capability: service.capability.toLowerCase() as 'sms' | 'voice' | 'smsAndVoiceCombo'
+        capability: service.capability.toLowerCase() as
+          | "sms"
+          | "voice"
+          | "smsAndVoiceCombo",
       }));
 
       // Cache for 1 hour
       await redis.set(cacheKey, JSON.stringify(normalizedServices), 60 * 60);
-      
+
       return normalizedServices;
     } catch (error) {
       console.error(`[TextVerified] Failed to fetch services:`, error);
       console.error(`[TextVerified] Error details:`, {
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        name: error instanceof Error ? error.name : undefined
+        name: error instanceof Error ? error.name : undefined,
       });
       throw error;
     }
@@ -213,21 +239,39 @@ export class TextVerifiedService {
    * Fetch pricing for a specific service and options
    * Uses /api/pub/v2/pricing/verifications endpoint
    */
-  async getServicePricing(request: TextVerifiedPricingRequest): Promise<TextVerifiedPricingResponse> {
+  async getServicePricing(
+    request: TextVerifiedPricingRequest,
+  ): Promise<TextVerifiedPricingResponse> {
     const cacheKey = `textverified:pricing:${request.serviceName}:${request.numberType}:${request.capability}:${request.areaCode}:${request.carrier}`;
-    
+    const invalidCacheKey = `textverified:pricing:invalid:${request.serviceName}`;
+
+    // Check negative cache — if this service name was previously rejected, skip the API call
+    const isInvalid = await redis.get(invalidCacheKey);
+    if (isInvalid) {
+      console.log(
+        `[TextVerified] Skipping invalid service (cached): ${request.serviceName}`,
+      );
+      throw new Error(
+        `Incompatible service and options: Invalid 'service name' (cached)`,
+      );
+    }
+
     // Check Redis cache first (cache for 30 minutes)
     const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log(`[TextVerified] Using cached pricing for ${request.serviceName}`);
+      console.log(
+        `[TextVerified] Using cached pricing for ${request.serviceName}`,
+      );
       return JSON.parse(cached); // TypeScript: cached is string due to truthy check
     }
 
-    console.log(`[TextVerified] Fetching pricing for ${request.serviceName}...`);
+    console.log(
+      `[TextVerified] Fetching pricing for ${request.serviceName}...`,
+    );
 
     try {
       const bearerToken = await this.getBearerToken();
-      
+
       const url = `${this.apiUrl}/pricing/verifications`;
       console.log(`[TextVerified] Requesting pricing: ${url}`);
 
@@ -240,35 +284,52 @@ export class TextVerifiedService {
         body: JSON.stringify(request),
       });
 
-      console.log(`[TextVerified] Pricing response: ${response.status} ${response.statusText}`);
+      console.log(
+        `[TextVerified] Pricing response: ${response.status} ${response.statusText}`,
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
-        
+
         // Handle 400 Bad Request for incompatible service/option combinations
+        // Cache the failure for 2 hours so we skip repeated API calls for the same invalid name
         if (response.status === 400) {
+          await redis.set(invalidCacheKey, "1", 2 * 60 * 60);
           throw new Error(`Incompatible service and options: ${errorText}`);
         }
-        
-        console.error(`[TextVerified] Pricing API Error: ${response.status} - ${errorText}`);
-        throw new Error(`TextVerified pricing API error: ${response.status} - ${errorText}`);
+
+        console.error(
+          `[TextVerified] Pricing API Error: ${response.status} - ${errorText}`,
+        );
+        throw new Error(
+          `TextVerified pricing API error: ${response.status} - ${errorText}`,
+        );
       }
 
       const pricingData = await response.json();
-      
+
       // Validate response structure
-      if (!pricingData || typeof pricingData.serviceName !== 'string' || typeof pricingData.price !== 'number') {
-        throw new Error('Invalid pricing response structure');
+      if (
+        !pricingData ||
+        typeof pricingData.serviceName !== "string" ||
+        typeof pricingData.price !== "number"
+      ) {
+        throw new Error("Invalid pricing response structure");
       }
 
-      console.log(`[TextVerified] ✓ Price for ${pricingData.serviceName}: $${pricingData.price}`);
+      console.log(
+        `[TextVerified] ✓ Price for ${pricingData.serviceName}: $${pricingData.price}`,
+      );
 
       // Cache for 30 minutes
       await redis.set(cacheKey, JSON.stringify(pricingData), 30 * 60);
-      
+
       return pricingData;
     } catch (error) {
-      console.error(`[TextVerified] Failed to fetch pricing for ${request.serviceName}:`, error);
+      console.error(
+        `[TextVerified] Failed to fetch pricing for ${request.serviceName}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -278,22 +339,27 @@ export class TextVerifiedService {
    * Combines services and pricing endpoints for complete data
    */
   async getServicesWithPricing(
-    numberType: 'mobile' | 'voip' | 'landline' = 'mobile',
+    numberType: "mobile" | "voip" | "landline" = "mobile",
     areaCode: boolean = false,
-    carrier: boolean = false
+    carrier: boolean = false,
   ): Promise<Array<TextVerifiedServiceData & { price: number }>> {
     console.log(`[TextVerified] Fetching services with pricing...`);
-    
+
     // Get all available services
-    const services = await this.getAvailableServices(numberType, 'verification');
-    
+    const services = await this.getAvailableServices(
+      numberType,
+      "verification",
+    );
+
     // Fetch pricing for each service in parallel batches
     const batchSize = 10;
-    const servicesWithPricing: Array<TextVerifiedServiceData & { price: number }> = [];
-    
+    const servicesWithPricing: Array<
+      TextVerifiedServiceData & { price: number }
+    > = [];
+
     for (let i = 0; i < services.length; i += batchSize) {
       const batch = services.slice(i, i + batchSize);
-      
+
       const pricingPromises = batch.map(async (service) => {
         try {
           const pricing = await this.getServicePricing({
@@ -303,13 +369,16 @@ export class TextVerifiedService {
             numberType,
             capability: service.capability,
           });
-          
+
           return {
             ...service,
             price: pricing.price,
           };
         } catch (error) {
-          console.warn(`[TextVerified] Failed to get pricing for ${service.serviceName}:`, error);
+          console.warn(
+            `[TextVerified] Failed to get pricing for ${service.serviceName}:`,
+            error,
+          );
           // Return service with default high price to indicate unavailable
           return {
             ...service,
@@ -317,21 +386,25 @@ export class TextVerifiedService {
           };
         }
       });
-      
+
       const batchResults = await Promise.all(pricingPromises);
       servicesWithPricing.push(...batchResults);
-      
+
       // Small delay between batches to avoid rate limiting
       if (i + batchSize < services.length) {
         await delay(100);
       }
     }
-    
+
     // Filter out services with unavailable pricing
-    const availableServices = servicesWithPricing.filter(service => service.price < 999999);
-    
-    console.log(`[TextVerified] ✓ ${availableServices.length} services with pricing available`);
-    
+    const availableServices = servicesWithPricing.filter(
+      (service) => service.price < 999999,
+    );
+
+    console.log(
+      `[TextVerified] ✓ ${availableServices.length} services with pricing available`,
+    );
+
     return availableServices;
   }
 
@@ -341,20 +414,22 @@ export class TextVerifiedService {
   async requestNumber(
     serviceName: string,
     country: string,
-    orderId: string
+    orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    console.log(`[TextVerified] Requesting number for ${serviceName} in ${country}`);
-    
+    console.log(
+      `[TextVerified] Requesting number for ${serviceName} in ${country}`,
+    );
+
     if (country !== "US") {
       throw new Error("TextVerified only supports the US.");
     }
 
     const bearerToken = await this.getBearerToken();
-    
+
     // Get service capability first
-    const services = await this.getAvailableServices('mobile', 'verification');
-    const service = services.find(s => s.serviceName === serviceName);
-    
+    const services = await this.getAvailableServices("mobile", "verification");
+    const service = services.find((s) => s.serviceName === serviceName);
+
     if (!service) {
       throw new Error(`Service ${serviceName} not found or not available`);
     }
@@ -365,7 +440,9 @@ export class TextVerifiedService {
       capability: service.capability,
     };
 
-    console.log(`[TextVerified] Creating verification with capability: ${service.capability}`);
+    console.log(
+      `[TextVerified] Creating verification with capability: ${service.capability}`,
+    );
 
     const res = await fetchWithRetry(verificationUrl, {
       method: "POST",
@@ -383,7 +460,7 @@ export class TextVerifiedService {
 
     const responseData = await res.json();
     const href: string = responseData.href;
-    
+
     if (!href) {
       throw new Error("Missing verification href in response");
     }
@@ -404,10 +481,10 @@ export class TextVerifiedService {
     const id = verificationId.startsWith("http")
       ? verificationId.split("/").pop() || verificationId
       : verificationId;
-    
+
     const bearerToken = await this.getBearerToken();
     const url = `${this.apiUrl}/verifications/${id}`;
-    
+
     const res = await fetchWithRetry(url, {
       method: "DELETE",
       headers: {
@@ -415,12 +492,12 @@ export class TextVerifiedService {
         "Content-Type": "application/json",
       },
     });
-    
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Failed to cancel verification: ${text}`);
     }
-    
+
     console.log(`[TextVerified] ✓ Cancelled verification ${id}`);
   }
 
@@ -436,17 +513,20 @@ export class TextVerifiedService {
       method: "GET",
       headers: { Authorization: `Bearer ${bearerToken}` },
     });
-    
+
     if (!res.ok) {
       const text = await res.text();
-      console.warn(`[TextVerified] Failed to fetch verification details (${res.status}): ${text}`);
+      console.warn(
+        `[TextVerified] Failed to fetch verification details (${res.status}): ${text}`,
+      );
       return null;
     }
-    
+
     const data = await res.json();
     const state = data?.state || data?.data?.state;
-    const number = data?.data?.phoneNumber || data?.data?.number || data?.number;
-    
+    const number =
+      data?.data?.phoneNumber || data?.data?.number || data?.number;
+
     return { state, number };
   }
 }

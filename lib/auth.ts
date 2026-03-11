@@ -2,6 +2,11 @@ import type { NextAuthOptions } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { verifyUserCredentials } from "@/lib/server/services/auth.service";
 
+if (!process.env.NEXTAUTH_URL) {
+  process.env.NEXTAUTH_URL =
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+}
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   providers: [
@@ -17,7 +22,7 @@ export const authOptions: NextAuthOptions = {
         }
         const user = await verifyUserCredentials(
           credentials.identifier,
-          credentials.password
+          credentials.password,
         );
         if (!user) {
           throw new Error("Invalid email or password.");
