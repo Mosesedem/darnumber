@@ -42,7 +42,7 @@ export class PricingService {
    */
   static async findBestPricingRule(
     serviceCode: string,
-    country: string
+    country: string,
   ): Promise<{
     id: string;
     serviceCode: string | null;
@@ -71,8 +71,10 @@ export class PricingService {
     // More specific rules get higher scores
     const scoreRule = (rule: (typeof rules)[0]): number => {
       let score = rule.priority * 100; // Base score from priority
-      if (rule.serviceCode && rule.country) score += 1000; // Most specific
-      else if (rule.serviceCode) score += 500; // Service-specific
+      if (rule.serviceCode && rule.country)
+        score += 1000; // Most specific
+      else if (rule.serviceCode)
+        score += 500; // Service-specific
       else if (rule.country) score += 250; // Country-specific
       // Global rules get no bonus
       return score;
@@ -108,7 +110,7 @@ export class PricingService {
   static async calculatePrice(
     basePrice: number,
     serviceCode: string,
-    country: string
+    country: string,
   ): Promise<PricingResult> {
     const rule = await this.findBestPricingRule(serviceCode, country);
 
@@ -130,13 +132,13 @@ export class PricingService {
           rule.serviceCode || "*"
         }/${rule.country || "*"}) - ${rule.profitType} ${rule.profitValue}${
           rule.profitType === "PERCENTAGE" ? "%" : ""
-        }`
+        }`,
       );
     } else {
       // No rule found, apply default markup
       profit = basePrice * (DEFAULT_MARKUP.profitValue / 100);
       console.log(
-        `[PricingService] No rule found, using default ${DEFAULT_MARKUP.profitValue}% markup`
+        `[PricingService] No rule found, using default ${DEFAULT_MARKUP.profitValue}% markup`,
       );
     }
 
@@ -162,7 +164,7 @@ export class PricingService {
       basePrice: number;
       serviceCode: string;
       country: string;
-    }>
+    }>,
   ): Promise<PricingResult[]> {
     // Fetch all active pricing rules once
     const allRules = await prisma.pricingRule.findMany({

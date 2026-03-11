@@ -18,14 +18,14 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retries = 3,
-  backoff = 300
+  backoff = 300,
 ): Promise<Response> {
   try {
     const res = await fetch(url, options);
     if (res.status === 429 && retries > 0) {
       const retryAfter = parseInt(res.headers.get("Retry-After") || "1");
       console.warn(
-        `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`
+        `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`,
       );
       await delay(retryAfter * 1000);
       return fetchWithRetry(url, options, retries - 1, backoff);
@@ -39,7 +39,7 @@ async function fetchWithRetry(
       console.warn(
         `[fetchWithRetry] Network error (${
           e.code || "FETCH_FAILED"
-        }). Retrying in ${backoff}ms... (${retries} retries left)`
+        }). Retrying in ${backoff}ms... (${retries} retries left)`,
       );
       await delay(backoff);
       return fetchWithRetry(url, options, retries - 1, backoff * 2);
@@ -71,7 +71,7 @@ export class OrderService {
     const providers = await this.getAvailableProviders(
       serviceCode,
       country,
-      preferredProvider
+      preferredProvider,
     );
     if (!providers.length) {
       throw new Error("No providers available for this service and country.");
@@ -133,13 +133,13 @@ export class OrderService {
     try {
       const providerService = this.getProviderService(selectedProvider.name);
       console.log(
-        `[OrderService] Requesting number from ${selectedProvider.name}...`
+        `[OrderService] Requesting number from ${selectedProvider.name}...`,
       );
 
       const providerOrder = await providerService.requestNumber(
         serviceCode,
         country,
-        order.id // Pass orderId for logging and context
+        order.id, // Pass orderId for logging and context
       );
 
       // Update order with provider details
@@ -164,7 +164,7 @@ export class OrderService {
     } catch (e) {
       console.error(
         `[OrderService] Provider request failed for order ${order.id}. Refunding...`,
-        e
+        e,
       );
       // If provider fails, refund the order
       await this.refundOrder(order.id, "PROVIDER_FAILURE");
@@ -173,7 +173,7 @@ export class OrderService {
   }
 
   private getProviderService(
-    providerName: string
+    providerName: string,
   ): SMSManService | TextVerifiedService {
     const name = providerName.toLowerCase();
     if (name.includes("lion") || name.includes("sms-man")) {
@@ -188,7 +188,7 @@ export class OrderService {
   async getAvailableProviders(
     serviceCode: string,
     country: string,
-    preferred?: string
+    preferred?: string,
   ) {
     // Use hardcoded providers instead of DB queries
     const availableProviders: Array<{
@@ -228,7 +228,7 @@ export class OrderService {
   async calculatePricing(
     providerId: string,
     serviceCode: string,
-    country: string
+    country: string,
   ) {
     const cacheKey = `pricing:${providerId}:${serviceCode}:${country}`;
     const cached = await redis.get(cacheKey);
@@ -279,7 +279,7 @@ export class OrderService {
         await this.tryFetchAndUpdateSmsCode(
           orderId,
           cached.provider,
-          cached.externalId
+          cached.externalId,
         );
         // Re-fetch after possible update
         const refreshed = await redis.getOrderStatus(orderId);
@@ -342,7 +342,7 @@ export class OrderService {
     } catch (e) {
       console.warn(
         "[OrderService] TextVerified details refresh failed",
-        e instanceof Error ? e.message : String(e)
+        e instanceof Error ? e.message : String(e),
       );
     }
 
@@ -351,7 +351,7 @@ export class OrderService {
       await this.tryFetchAndUpdateSmsCode(
         order.id,
         order.providerId,
-        order.externalId
+        order.externalId,
       );
       // Re-fetch after possible update
       const refreshed = await prisma.order.findUnique({
@@ -447,7 +447,7 @@ export class OrderService {
         console.error(
           "[OrderService] Failed to auto-expire order",
           order.id,
-          e
+          e,
         );
       }
     }
@@ -468,7 +468,7 @@ export class OrderService {
   private async tryFetchAndUpdateSmsCode(
     orderId: string,
     providerId: string,
-    externalId?: string | null
+    externalId?: string | null,
   ) {
     if (!externalId) return;
     let code: string | undefined;
@@ -481,13 +481,13 @@ export class OrderService {
         const detailsUrl = externalId;
         console.log(
           "[tryFetchAndUpdateSmsCode] Fetching TextVerified:",
-          detailsUrl
+          detailsUrl,
         );
         // Try fetching messages from /messages endpoint
         const messagesUrl = `${detailsUrl}/messages`;
         console.log(
           "[tryFetchAndUpdateSmsCode] Also trying messages URL:",
-          messagesUrl
+          messagesUrl,
         );
         let res = await fetch(messagesUrl, {
           headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
@@ -495,7 +495,7 @@ export class OrderService {
         if (!res.ok) {
           // Fallback to details URL
           console.log(
-            "[tryFetchAndUpdateSmsCode] Messages URL failed, trying details URL"
+            "[tryFetchAndUpdateSmsCode] Messages URL failed, trying details URL",
           );
           res = await fetch(detailsUrl, {
             headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
@@ -503,13 +503,13 @@ export class OrderService {
         }
         console.log(
           "[tryFetchAndUpdateSmsCode] TextVerified fetch status:",
-          res.status
+          res.status,
         );
         if (res.ok) {
           const data = await res.json();
           console.log(
             "[tryFetchAndUpdateSmsCode] TextVerified response:",
-            JSON.stringify(data, null, 2)
+            JSON.stringify(data, null, 2),
           );
           // TextVerified: code may be in data.messages[0].parsed_code or message content
           let foundCode = null;
@@ -561,18 +561,18 @@ export class OrderService {
             status = "COMPLETED";
             console.log(
               "[tryFetchAndUpdateSmsCode] Found code in TextVerified:",
-              code
+              code,
             );
           } else {
             console.log(
-              "[tryFetchAndUpdateSmsCode] No code found in TextVerified response"
+              "[tryFetchAndUpdateSmsCode] No code found in TextVerified response",
             );
           }
         } else {
           console.log(
             "[tryFetchAndUpdateSmsCode] TextVerified fetch failed:",
             res.status,
-            await res.text()
+            await res.text(),
           );
         }
       } else if (providerId === "sms-man") {
@@ -586,18 +586,18 @@ export class OrderService {
         const url = `https://api.sms-man.com/control/get-sms?token=${apiKey}&request_id=${externalId}`;
         console.log(
           "[tryFetchAndUpdateSmsCode] Fetching SMS-Man:",
-          url.replace(apiKey, "***")
+          url.replace(apiKey, "***"),
         );
         const res = await fetch(url);
         console.log(
           "[tryFetchAndUpdateSmsCode] SMS-Man fetch status:",
-          res.status
+          res.status,
         );
         if (res.ok) {
           const data = await res.json();
           console.log(
             "[tryFetchAndUpdateSmsCode] SMS-Man response:",
-            JSON.stringify(data, null, 2)
+            JSON.stringify(data, null, 2),
           );
           let foundSms = null;
           if (
@@ -631,18 +631,18 @@ export class OrderService {
             status = "COMPLETED";
             console.log(
               "[tryFetchAndUpdateSmsCode] Found code in SMS-Man:",
-              code
+              code,
             );
           } else {
             console.log(
-              "[tryFetchAndUpdateSmsCode] No code found in SMS-Man response"
+              "[tryFetchAndUpdateSmsCode] No code found in SMS-Man response",
             );
           }
         } else {
           console.log(
             "[tryFetchAndUpdateSmsCode] SMS-Man fetch failed:",
             res.status,
-            await res.text()
+            await res.text(),
           );
         }
       }
@@ -684,7 +684,7 @@ export class OrderService {
 
   async refundOrder(
     orderId: string,
-    reason: "USER_CANCELLED" | "PROVIDER_FAILURE" | "EXPIRED"
+    reason: "USER_CANCELLED" | "PROVIDER_FAILURE" | "EXPIRED",
   ) {
     return await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
@@ -710,7 +710,7 @@ export class OrderService {
         order.status === "CANCELLED"
       ) {
         console.warn(
-          `[Refund] Order ${orderId} is already in a final state (${order.status}). No refund will be processed.`
+          `[Refund] Order ${orderId} is already in a final state (${order.status}). No refund will be processed.`,
         );
         return;
       }
@@ -751,7 +751,7 @@ export class OrderService {
       });
 
       console.log(
-        `[Refund] Successfully processed refund for order ${orderId}.`
+        `[Refund] Successfully processed refund for order ${orderId}.`,
       );
     });
   }
@@ -865,7 +865,7 @@ export class SMSManService {
       const applications = Object.values(applicationsData);
 
       console.log(
-        `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`
+        `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`,
       );
 
       // Create lookup maps for fast processing
@@ -915,13 +915,13 @@ export class SMSManService {
                 providerId: "sms-man",
                 currency: "RUB",
               });
-            }
+            },
           );
-        }
+        },
       );
 
       console.log(
-        `[SMSManService] Successfully processed ${services.length} services`
+        `[SMSManService] Successfully processed ${services.length} services`,
       );
       return services;
     } catch (err) {
@@ -929,7 +929,7 @@ export class SMSManService {
       throw new Error(
         `SMS-Man API failed: ${
           err instanceof Error ? err.message : "Unknown error"
-        }`
+        }`,
       );
     }
   }
@@ -948,7 +948,7 @@ export class SMSManService {
   async requestNumber(
     serviceCode: string,
     country: string,
-    orderId: string
+    orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
     console.log("[SMSManService] requestNumber", {
       serviceCode,
@@ -1109,7 +1109,7 @@ export class TextVerifiedService {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
-        `Failed to generate bearer token: ${response.status} - ${errorText}`
+        `Failed to generate bearer token: ${response.status} - ${errorText}`,
       );
     }
 
@@ -1180,7 +1180,7 @@ export class TextVerifiedService {
       });
 
       console.log(
-        `[TextVerified] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`
+        `[TextVerified] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`,
       );
 
       if (!servicesResponse.ok) {
@@ -1188,7 +1188,7 @@ export class TextVerifiedService {
         console.error(`[TextVerified] API Error: ${servicesResponse.status}`);
         console.error(`[TextVerified] Error body:`, errorText);
         throw new Error(
-          `TextVerified API error: ${servicesResponse.status} - ${errorText}`
+          `TextVerified API error: ${servicesResponse.status} - ${errorText}`,
         );
       }
 
@@ -1204,19 +1204,19 @@ export class TextVerifiedService {
       const servicesList = extractServices(servicesData);
 
       console.log(
-        `[TextVerified] Total services found: ${servicesList.length}`
+        `[TextVerified] Total services found: ${servicesList.length}`,
       );
 
       if (servicesList.length === 0) {
         console.warn(`[TextVerified] ⚠️  No services returned from API`);
         console.warn(
           `[TextVerified] Raw services payload keys: ${Object.keys(
-            servicesData || {}
-          ).join(", ")}`
+            servicesData || {},
+          ).join(", ")}`,
         );
         console.warn(
           `[TextVerified] Raw:`,
-          JSON.stringify(servicesData).slice(0, 1000)
+          JSON.stringify(servicesData).slice(0, 1000),
         );
         return [];
       }
@@ -1225,7 +1225,7 @@ export class TextVerifiedService {
       if (servicesList.length > 0) {
         console.log(
           `[TextVerified] Sample service fields:`,
-          JSON.stringify(servicesList[0], null, 2)
+          JSON.stringify(servicesList[0], null, 2),
         );
       }
 
@@ -1256,7 +1256,7 @@ export class TextVerifiedService {
       // Count services with pricing data
       const servicesWithPrice = services.filter((s: any) => s.price > 0).length;
       console.log(
-        `\n[TextVerified] ✅ Successfully processed ${services.length} services (${servicesWithPrice} with pricing)`
+        `\n[TextVerified] ✅ Successfully processed ${services.length} services (${servicesWithPrice} with pricing)`,
       );
       console.log("╚═══════════════════════════════════════════════╝\n");
 
@@ -1269,7 +1269,7 @@ export class TextVerifiedService {
       console.error("\n[TextVerified] ❌ FATAL ERROR");
       console.error(
         "[TextVerified] Error:",
-        err instanceof Error ? err.message : err
+        err instanceof Error ? err.message : err,
       );
       if (err instanceof Error) {
         console.error("[TextVerified] Stack:", err.stack);
@@ -1287,7 +1287,7 @@ export class TextVerifiedService {
    */
   async fetchAndCacheServicePrice(serviceName: string): Promise<number | null> {
     console.log(
-      `[TextVerified][Price] Fetching price for service: ${serviceName}`
+      `[TextVerified][Price] Fetching price for service: ${serviceName}`,
     );
     const cacheKey = `textverified:price:${serviceName}`;
 
@@ -1295,7 +1295,7 @@ export class TextVerifiedService {
     const cachedPrice = await redis.get(cacheKey);
     if (cachedPrice && cachedPrice !== "-1" && parseFloat(cachedPrice) > 0) {
       console.log(
-        `[TextVerified][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`
+        `[TextVerified][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`,
       );
       return parseFloat(cachedPrice);
     }
@@ -1308,12 +1308,12 @@ export class TextVerifiedService {
       const service = services.find(
         (s: any) =>
           s.code === serviceName ||
-          s.name?.toLowerCase() === serviceName.toLowerCase()
+          s.name?.toLowerCase() === serviceName.toLowerCase(),
       );
 
       if (service && service.price > 0) {
         console.log(
-          `[TextVerified][Price] Found price from services list for ${serviceName}: $${service.price}`
+          `[TextVerified][Price] Found price from services list for ${serviceName}: $${service.price}`,
         );
         await redis.set(cacheKey, service.price.toString(), 60 * 60 * 24);
         return service.price;
@@ -1327,16 +1327,16 @@ export class TextVerifiedService {
 
     console.log(
       `[TextVerified][Price] Using default base price for ${serviceName}: $${defaultPrice.toFixed(
-        2
-      )}`
+        2,
+      )}`,
     );
 
     await redis.set(cacheKey, defaultPrice.toString(), 60 * 60 * 24); // Cache for 24 hours
 
     console.log(
       `[TextVerified][Price] ✓ Cached price for ${serviceName}: $${defaultPrice.toFixed(
-        2
-      )}`
+        2,
+      )}`,
     );
 
     return defaultPrice;
@@ -1345,7 +1345,7 @@ export class TextVerifiedService {
   async requestNumber(
     serviceName: string,
     country: string,
-    orderId: string
+    orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
     console.log("\n╔════════════════════════════════════════════════╗");
     console.log("║  TextVerified - Requesting Number");
@@ -1366,7 +1366,7 @@ export class TextVerifiedService {
     const verificationUrl = `${this.apiUrl}/verifications`;
 
     console.log(
-      `[TextVerified][Request] Step 2: Fetching service capability...`
+      `[TextVerified][Request] Step 2: Fetching service capability...`,
     );
     // Fetch the service capability from the services list
     const services = await this.getAvailableServices();
@@ -1383,7 +1383,7 @@ export class TextVerifiedService {
 
     console.log(
       `[TextVerified][Request] Request body:`,
-      JSON.stringify(body, null, 2)
+      JSON.stringify(body, null, 2),
     );
 
     const res = await fetchWithRetry(verificationUrl, {
@@ -1396,7 +1396,7 @@ export class TextVerifiedService {
     });
 
     console.log(
-      `[TextVerified][Response] Status: ${res.status} ${res.statusText}`
+      `[TextVerified][Response] Status: ${res.status} ${res.statusText}`,
     );
 
     // Check if response is JSON before parsing
@@ -1407,18 +1407,18 @@ export class TextVerifiedService {
       responseData = await res.json();
       console.log(
         `[TextVerified][Response] Body:`,
-        JSON.stringify(responseData, null, 2)
+        JSON.stringify(responseData, null, 2),
       );
     } else {
       const textResponse = await res.text();
       console.error(
         `[TextVerified][Response] ✗ Non-JSON response (${res.status}):`,
-        textResponse.substring(0, 500)
+        textResponse.substring(0, 500),
       );
       throw new Error(
         `TextVerified API returned non-JSON response (${
           res.status
-        }): ${textResponse.substring(0, 200)}`
+        }): ${textResponse.substring(0, 200)}`,
       );
     }
 
@@ -1428,11 +1428,11 @@ export class TextVerifiedService {
         responseData.error ||
         JSON.stringify(responseData);
       console.error(
-        `[TextVerified][Response] ✗ Request failed (${res.status}): ${errorMsg}`
+        `[TextVerified][Response] ✗ Request failed (${res.status}): ${errorMsg}`,
       );
       console.log("╚════════════════════════════════════════════════╝\n");
       throw new Error(
-        `Failed to request number from TextVerified (${res.status}): ${errorMsg}`
+        `Failed to request number from TextVerified (${res.status}): ${errorMsg}`,
       );
     }
 
@@ -1440,13 +1440,13 @@ export class TextVerifiedService {
     const href: string | undefined = responseData.href;
     if (!href) {
       console.error(
-        `[TextVerified][Response] ✗ Missing verification href in response`
+        `[TextVerified][Response] ✗ Missing verification href in response`,
       );
       console.log("╚════════════════════════════════════════════════╝\n");
       throw new Error(
         `TextVerified response missing verification href: ${JSON.stringify(
-          responseData
-        )}`
+          responseData,
+        )}`,
       );
     }
 
@@ -1457,10 +1457,10 @@ export class TextVerifiedService {
     console.log(`[TextVerified][Success]   Href: ${href}`);
     if (shortId) console.log(`[TextVerified][Success]   ID: ${shortId}`);
     console.log(
-      `[TextVerified][Success]   Number: ${responseData.number || "pending"}`
+      `[TextVerified][Success]   Number: ${responseData.number || "pending"}`,
     );
     console.log(
-      `[TextVerified][Success]   Cost: $${responseData.price || "N/A"}`
+      `[TextVerified][Success]   Cost: $${responseData.price || "N/A"}`,
     );
     console.log("╚════════════════════════════════════════════════╝\n");
 
@@ -1485,7 +1485,7 @@ export class TextVerifiedService {
     if (!res.ok) {
       const text = await res.text();
       console.warn(
-        `[TextVerified] Failed to fetch verification details (${res.status}): ${text}`
+        `[TextVerified] Failed to fetch verification details (${res.status}): ${text}`,
       );
       return null;
     }

@@ -27,7 +27,7 @@ export class PaymentService {
       "amount=",
       amount,
       "currency=",
-      user.currency
+      user.currency,
     );
 
     if (provider === "etegram") {
@@ -35,7 +35,7 @@ export class PaymentService {
       const publicKey = process.env.ETEGRAM_PUBLIC_KEY;
       if (!projectId || !publicKey)
         throw new Error(
-          "Etegram credentials not configured. Please set ETEGRAM_PROJECT_ID and ETEGRAM_PUBLIC_KEY in .env"
+          "Etegram credentials not configured. Please set ETEGRAM_PROJECT_ID and ETEGRAM_PUBLIC_KEY in .env",
         );
 
       const reference = `ETG-${Date.now()}-${Math.random()
@@ -49,7 +49,7 @@ export class PaymentService {
         "initUrl=",
         initUrl,
         "email=",
-        user.email
+        user.email,
       );
       const res = await fetch(initUrl, {
         method: "POST",
@@ -69,7 +69,7 @@ export class PaymentService {
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         throw new Error(
-          `Failed to initialize Etegram payment${errText ? ": " + errText : ""}`
+          `Failed to initialize Etegram payment${errText ? ": " + errText : ""}`,
         );
       }
       const data = (await res.json()) as any;
@@ -102,7 +102,7 @@ export class PaymentService {
         "ref=",
         ref,
         "accessCode=",
-        accessCode
+        accessCode,
       );
       return { authorizationUrl: authUrl, reference: ref };
     }
@@ -111,7 +111,7 @@ export class PaymentService {
       const secret = process.env.PAYSTACK_SECRET_KEY;
       if (!secret)
         throw new Error(
-          "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env"
+          "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env",
         );
 
       const reference = `PST-${Date.now()}-${Math.random()
@@ -124,7 +124,7 @@ export class PaymentService {
         "email=",
         user.email,
         "amount(kobo)=",
-        Math.round(Number(amount) * 100)
+        Math.round(Number(amount) * 100),
       );
 
       const res = await fetch(
@@ -141,14 +141,14 @@ export class PaymentService {
             currency: "NGN",
             reference,
           }),
-        }
+        },
       );
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         throw new Error(
           `Failed to initialize Paystack payment${
             errText ? ": " + errText : ""
-          }`
+          }`,
         );
       }
       const data = (await res.json()) as any;
@@ -177,7 +177,7 @@ export class PaymentService {
       console.log(
         "[Payments][Paystack][Txn] Created pending deposit",
         "ref=",
-        ref
+        ref,
       );
       return { authorizationUrl: authUrl, reference: ref };
     }
@@ -186,12 +186,12 @@ export class PaymentService {
       const secret = process.env.FLUTTERWAVE_SECRET_KEY;
       if (!secret)
         throw new Error(
-          "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env"
+          "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env",
         );
 
       if (!process.env.NEXTAUTH_URL) {
         throw new Error(
-          "Missing NEXTAUTH_URL for Flutterwave redirect. Set NEXTAUTH_URL (e.g., https://darnumber.com)."
+          "Missing NEXTAUTH_URL for Flutterwave redirect. Set NEXTAUTH_URL (e.g., https://darnumber.com).",
         );
       }
 
@@ -205,7 +205,7 @@ export class PaymentService {
         "email=",
         user.email,
         "amount=",
-        Math.round(Number(amount))
+        Math.round(Number(amount)),
       );
 
       const body = {
@@ -234,7 +234,7 @@ export class PaymentService {
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         throw new Error(
-          `Failed to initialize Flutterwave${errText ? ": " + errText : ""}`
+          `Failed to initialize Flutterwave${errText ? ": " + errText : ""}`,
         );
       }
       const data = (await res.json()) as any;
@@ -262,7 +262,7 @@ export class PaymentService {
       console.log(
         "[Payments][Flutterwave][Txn] Created pending deposit",
         "ref=",
-        reference
+        reference,
       );
       return { authorizationUrl: link, reference };
     }
@@ -283,7 +283,7 @@ export class PaymentService {
       "provider=",
       provider,
       "reference=",
-      reference
+      reference,
     );
     const txn = await prisma.transaction.findFirst({
       where: {
@@ -299,7 +299,7 @@ export class PaymentService {
       const secret = process.env.PAYSTACK_SECRET_KEY;
       if (!secret)
         throw new Error(
-          "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env"
+          "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.paystack.co/transaction/verify/${reference}`;
       console.log("[Payments][Verify][Paystack] verifyUrl=", verifyUrl);
@@ -333,7 +333,7 @@ export class PaymentService {
         "paid=",
         paid,
         "amountPaid=",
-        amountPaid
+        amountPaid,
       );
 
       if (!paid)
@@ -374,7 +374,7 @@ export class PaymentService {
         "reference=",
         reference,
         "amount=",
-        amountPaid
+        amountPaid,
       );
       await redis.invalidateUserBalance(userId);
       return {
@@ -389,7 +389,7 @@ export class PaymentService {
       const secret = process.env.FLUTTERWAVE_SECRET_KEY;
       if (!secret)
         throw new Error(
-          "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env"
+          "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${reference}`;
       console.log("[Payments][Verify][Flutterwave] verifyUrl=", verifyUrl);
@@ -403,7 +403,7 @@ export class PaymentService {
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         throw new Error(
-          `Failed to verify Flutterwave payment${errText ? ": " + errText : ""}`
+          `Failed to verify Flutterwave payment${errText ? ": " + errText : ""}`,
         );
       }
       const data = (await res.json()) as any;
@@ -417,7 +417,7 @@ export class PaymentService {
         "paid=",
         paid,
         "amountPaid=",
-        amountPaid
+        amountPaid,
       );
 
       if (!paid)
@@ -458,7 +458,7 @@ export class PaymentService {
         "reference=",
         reference,
         "amount=",
-        amountPaid
+        amountPaid,
       );
       await redis.invalidateUserBalance(userId);
       return {
@@ -474,7 +474,7 @@ export class PaymentService {
       const publicKey = process.env.ETEGRAM_PUBLIC_KEY;
       if (!projectId || !publicKey)
         throw new Error(
-          "Etegram credentials not configured. Please set ETEGRAM_PROJECT_ID and ETEGRAM_PUBLIC_KEY in .env"
+          "Etegram credentials not configured. Please set ETEGRAM_PROJECT_ID and ETEGRAM_PUBLIC_KEY in .env",
         );
       const accessCode = (txn.paymentDetails as any)?.accessCode;
 
@@ -494,7 +494,7 @@ export class PaymentService {
       "userId=",
       userId,
       "amount=",
-      amount
+      amount,
     );
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error("User not found");
@@ -536,7 +536,7 @@ export class PaymentService {
     userId: string,
     transactionId: string,
     amount: number,
-    meta: Record<string, unknown>
+    meta: Record<string, unknown>,
   ) {
     console.log(
       "[Payments][Deposit] Completing",
@@ -547,7 +547,7 @@ export class PaymentService {
       "amount=",
       amount,
       "meta=",
-      meta
+      meta,
     );
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({
@@ -585,7 +585,7 @@ export class PaymentService {
       "transactionId=",
       transactionId,
       "amount=",
-      amount
+      amount,
     );
   }
 
@@ -619,7 +619,7 @@ export class PaymentService {
       "ref=",
       reference,
       "amount=",
-      amount
+      amount,
     );
 
     // Check for existing transaction
@@ -632,7 +632,7 @@ export class PaymentService {
       if (existingTxn.status === "PENDING") {
         console.log(
           "[Webhook][Etegram] Found pending transaction, completing it:",
-          existingTxn.id
+          existingTxn.id,
         );
         await this.completeDeposit(existingTxn.userId, existingTxn.id, amount, {
           provider: "etegram",
@@ -640,12 +640,12 @@ export class PaymentService {
         });
         console.log(
           "[Webhook][Etegram] Deposit completed for user:",
-          existingTxn.userId
+          existingTxn.userId,
         );
       } else {
         console.log(
           "[Webhook][Etegram] Transaction already processed with status:",
-          existingTxn.status
+          existingTxn.status,
         );
       }
       return { ok: true };
@@ -657,7 +657,7 @@ export class PaymentService {
 
     if (!customerEmail) {
       console.log(
-        "[Webhook][Etegram] No existing transaction and no customer email; skipping"
+        "[Webhook][Etegram] No existing transaction and no customer email; skipping",
       );
       return { ok: true };
     }
@@ -670,7 +670,7 @@ export class PaymentService {
     if (!user) {
       console.log(
         "[Webhook][Etegram] User not found for email:",
-        customerEmail
+        customerEmail,
       );
       return { ok: true };
     }
@@ -681,7 +681,7 @@ export class PaymentService {
 
     console.log(
       "[Webhook][Etegram] Creating new transaction for user:",
-      user.id
+      user.id,
     );
 
     const newTxn = await prisma.transaction.create({
@@ -712,7 +712,7 @@ export class PaymentService {
       "userId=",
       user.id,
       "txn=",
-      newTxn.id
+      newTxn.id,
     );
 
     return { ok: true };
@@ -724,7 +724,7 @@ export class PaymentService {
       "signaturePresent=",
       !!signature,
       "rawLen=",
-      (rawBody || "").length
+      (rawBody || "").length,
     );
     // Signature validation intentionally disabled.
 
@@ -733,7 +733,7 @@ export class PaymentService {
       "[Paystack Webhook] Event:",
       event?.event,
       "Data:",
-      JSON.stringify(event?.data || {}).substring(0, 200)
+      JSON.stringify(event?.data || {}).substring(0, 200),
     );
 
     // Handle charge success events
@@ -757,7 +757,7 @@ export class PaymentService {
         "email=",
         customerEmail,
         "channel=",
-        channel
+        channel,
       );
 
       // Check if we already processed this reference
@@ -770,7 +770,7 @@ export class PaymentService {
         if (existingTxn.status === "PENDING") {
           console.log(
             "[Paystack Webhook] Found pending transaction, completing it:",
-            existingTxn.id
+            existingTxn.id,
           );
           await this.completeDeposit(
             existingTxn.userId,
@@ -780,16 +780,16 @@ export class PaymentService {
               provider: "paystack",
               reference: ref,
               channel: channel,
-            }
+            },
           );
           console.log(
             "[Paystack Webhook] Deposit completed for user:",
-            existingTxn.userId
+            existingTxn.userId,
           );
         } else {
           console.log(
             "[Paystack Webhook] Transaction already processed with status:",
-            existingTxn.status
+            existingTxn.status,
           );
         }
         return { ok: true, status: 200 };
@@ -799,7 +799,7 @@ export class PaymentService {
       if (customerEmail) {
         console.log(
           "[Paystack Webhook] No existing transaction, creating new one for:",
-          customerEmail
+          customerEmail,
         );
 
         const user = await prisma.user.findUnique({
@@ -813,7 +813,7 @@ export class PaymentService {
 
           console.log(
             "[Paystack Webhook] Creating new transaction for user:",
-            user.id
+            user.id,
           );
 
           const newTxn = await prisma.transaction.create({
@@ -851,17 +851,17 @@ export class PaymentService {
             "[Paystack Webhook] New deposit completed for user:",
             user.id,
             "txn:",
-            newTxn.id
+            newTxn.id,
           );
         } else {
           console.log(
             "[Paystack Webhook] User not found for email:",
-            customerEmail
+            customerEmail,
           );
         }
       } else {
         console.log(
-          "[Paystack Webhook] No customer email found, cannot create transaction"
+          "[Paystack Webhook] No customer email found, cannot create transaction",
         );
       }
     }
@@ -875,7 +875,7 @@ export class PaymentService {
       "signaturePresent=",
       !!signature,
       "rawLen=",
-      (rawBody || "").length
+      (rawBody || "").length,
     );
     // Signature validation intentionally disabled.
     const event = JSON.parse(rawBody);
@@ -894,7 +894,7 @@ export class PaymentService {
         "amount=",
         amount,
         "customerEmail=",
-        customerEmail
+        customerEmail,
       );
 
       if (!ref) {
@@ -912,7 +912,7 @@ export class PaymentService {
         if (existingTxn.status === "PENDING") {
           console.log(
             "[Webhook][Flutterwave] Found pending transaction, completing it:",
-            existingTxn.id
+            existingTxn.id,
           );
           await this.completeDeposit(
             existingTxn.userId,
@@ -921,16 +921,16 @@ export class PaymentService {
             {
               provider: "flutterwave",
               reference: ref,
-            }
+            },
           );
           console.log(
             "[Webhook][Flutterwave] Deposit completed for user:",
-            existingTxn.userId
+            existingTxn.userId,
           );
         } else {
           console.log(
             "[Webhook][Flutterwave] Transaction already processed with status:",
-            existingTxn.status
+            existingTxn.status,
           );
         }
         return { ok: true, status: 200 };
@@ -939,7 +939,7 @@ export class PaymentService {
       // Transaction doesn't exist - create new one if we have customer email
       if (!customerEmail) {
         console.log(
-          "[Webhook][Flutterwave] No existing transaction and no customer email; skipping"
+          "[Webhook][Flutterwave] No existing transaction and no customer email; skipping",
         );
         return { ok: true, status: 200 };
       }
@@ -952,7 +952,7 @@ export class PaymentService {
       if (!user) {
         console.log(
           "[Webhook][Flutterwave] User not found for email:",
-          customerEmail
+          customerEmail,
         );
         return { ok: true, status: 200 };
       }
@@ -963,7 +963,7 @@ export class PaymentService {
 
       console.log(
         "[Webhook][Flutterwave] Creating new transaction for user:",
-        user.id
+        user.id,
       );
 
       const newTxn = await prisma.transaction.create({
@@ -994,7 +994,7 @@ export class PaymentService {
         "userId=",
         user.id,
         "txn=",
-        newTxn.id
+        newTxn.id,
       );
     }
 
@@ -1003,7 +1003,7 @@ export class PaymentService {
 
   async requestPaystackDedicatedAccount(
     userId: string,
-    preferredBank?: string
+    preferredBank?: string,
   ) {
     const secret = process.env.PAYSTACK_SECRET_KEY;
     if (!secret) throw new Error("Paystack secret not configured");
@@ -1011,7 +1011,7 @@ export class PaymentService {
     if (!user) throw new Error("User not found");
     if (!user.email)
       throw new Error(
-        "User missing email. A Paystack customer requires an email address."
+        "User missing email. A Paystack customer requires an email address.",
       );
     console.log(
       "[DVA][Service] user=",
@@ -1019,7 +1019,7 @@ export class PaymentService {
       "preferredBank=",
       preferredBank,
       "currency=",
-      user.currency
+      user.currency,
     );
     // Try to find an existing Paystack customer by email via listing
     let customerCode: string | undefined;
@@ -1032,14 +1032,14 @@ export class PaymentService {
             Authorization: `Bearer ${secret}`,
             "Content-Type": "application/json",
           },
-        }
+        },
       );
       if (listRes.ok) {
         const listJson = (await listRes.json()) as any;
         const match = Array.isArray(listJson?.data)
           ? listJson.data.find(
               (c: any) =>
-                (c?.email || "").toLowerCase() === user.email.toLowerCase()
+                (c?.email || "").toLowerCase() === user.email.toLowerCase(),
             )
           : undefined;
         if (match?.customer_code) customerCode = match.customer_code;
@@ -1064,7 +1064,7 @@ export class PaymentService {
       if (!custRes.ok) {
         const errText = await custRes.text().catch(() => "");
         throw new Error(
-          `Failed to create Paystack customer${errText ? ": " + errText : ""}`
+          `Failed to create Paystack customer${errText ? ": " + errText : ""}`,
         );
       }
       const cust = (await custRes.json()) as any;
@@ -1072,7 +1072,7 @@ export class PaymentService {
       console.log("[DVA][Service] createdCustomerCode=", customerCode);
       if (!customerCode) {
         throw new Error(
-          "Failed to create Paystack customer: missing customer_code"
+          "Failed to create Paystack customer: missing customer_code",
         );
       }
     }
@@ -1099,7 +1099,7 @@ export class PaymentService {
           email: user.email,
           phone: user.phone || undefined,
         }),
-      }
+      },
     );
     if (!assignRes.ok) {
       const errText = await assignRes.text().catch(() => "");
@@ -1107,10 +1107,10 @@ export class PaymentService {
         "[DVA][Service][Assign][ERROR] code=",
         customerCode,
         "resp=",
-        errText
+        errText,
       );
       throw new Error(
-        `Failed to assign dedicated account${errText ? ": " + errText : ""}`
+        `Failed to assign dedicated account${errText ? ": " + errText : ""}`,
       );
     }
     const assign = (await assignRes.json()) as any;
@@ -1132,7 +1132,7 @@ export class PaymentService {
         } as any;
       }
       throw new Error(
-        `Invalid dedicated account response: ${JSON.stringify(assign)}`
+        `Invalid dedicated account response: ${JSON.stringify(assign)}`,
       );
     }
 
