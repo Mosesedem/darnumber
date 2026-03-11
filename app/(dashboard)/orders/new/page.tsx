@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-  useMemo,
-  useDeferredValue,
-  useCallback,
-  useRef,
-} from "react";
+import { useEffect, useState, useMemo, useDeferredValue } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
@@ -57,6 +50,8 @@ interface Service {
   price: number;
   providers: Provider[];
   ui?: ServiceUi;
+  capability?: string;
+  prices?: Record<string, number>;
 }
 
 const FALLBACK_USD_TO_NGN = 1600;
@@ -81,10 +76,6 @@ export default function NewOrderPage() {
     Map<string, string>
   >(new Map());
   const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
-  // Lazy TextVerified exact price (fetched per-service when selected)
-  const [tvExactPrice, setTvExactPrice] = useState<number | null>(null);
-  const [tvPriceLoading, setTvPriceLoading] = useState(false);
-  const tvPriceAbortRef = useRef<AbortController | null>(null);
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -353,7 +344,7 @@ export default function NewOrderPage() {
       .map((s) => {
         // Backend sends prices with full markup already applied in NGN
         // All prices from the services API are in USD with admin markup applied
-        const priceUsd = (s as any).prices?.[selectedProvider] ?? s.price ?? 0;
+        const priceUsd = s.prices?.[selectedProvider] ?? s.price ?? 0;
         const priceNgn = Math.ceil(
           priceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
         );
@@ -439,67 +430,12 @@ export default function NewOrderPage() {
   useEffect(() => {
     setSelectedService("");
     setSelectedCountry("");
-    setTvExactPrice(null);
   }, [selectedProvider]);
 
   // Reset country when service changes
   useEffect(() => {
     setSelectedCountry("");
-    setTvExactPrice(null);
   }, [selectedService]);
-
-  // Lazily fetch exact TextVerified price when a Panda service is selected
-  useEffect(() => {
-    if (selectedProvider !== "panda" || !selectedService) {
-      setTvExactPrice(null);
-      return;
-    }
-
-    // Abort any in-flight request
-    tvPriceAbortRef.current?.abort();
-    const controller = new AbortController();
-    tvPriceAbortRef.current = controller;
-
-    const fetchTvPrice = async () => {
-      setTvPriceLoading(true);
-      try {
-        console.log(
-          `[NewOrderPage] Fetching exact TV price for ${selectedService}...`,
-        );
-        const res = await fetch(
-          `/api/providers/textverified/price?serviceName=${encodeURIComponent(selectedService)}`,
-          {
-            signal: controller.signal,
-          },
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        const priceNgn = json?.data?.price;
-        const priceUsd = json?.data?.finalUsd;
-        if (priceUsd && priceUsd > 0) {
-          console.log(
-            `[NewOrderPage] Exact TV price: $${priceUsd} (₦${priceNgn})`,
-          );
-          setTvExactPrice(priceUsd);
-        } else {
-          console.warn(
-            `[NewOrderPage] TV price endpoint returned no valid price`,
-          );
-        }
-      } catch (err: any) {
-        if (err?.name !== "AbortError") {
-          console.warn(`[NewOrderPage] Failed to fetch TV price:`, err);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setTvPriceLoading(false);
-        }
-      }
-    };
-
-    fetchTvPrice();
-    return () => controller.abort();
-  }, [selectedProvider, selectedService]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,7 +477,7 @@ export default function NewOrderPage() {
       code: service.code,
       name: service.name,
       price: service.price,
-      prices: (service as any).prices,
+      prices: service.prices,
     });
 
     if (balance < currentPriceNgn) {
@@ -568,7 +504,7 @@ export default function NewOrderPage() {
 
       console.log("[NewOrderPage] Order price calculation:", {
         servicePrice_USD: service.price,
-        providerPrice_USD: (service as any)?.prices?.[selectedProvider],
+        providerPrice_USD: service.prices?.[selectedProvider],
         exchangeRate_USD_NGN: usdToNgn,
         finalPrice_NGN: price,
         providerName: provider?.name,
@@ -643,21 +579,17 @@ export default function NewOrderPage() {
   }
 
   const currentService = allServices.find(
-    (s) => s.code === selectedService && s.country === selectedCountry,
+    (s) =>
+      s.code === selectedService &&
+      s.country === selectedCountry &&
+      s.providers.some((p) => p.id === selectedProvider),
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
 
-  // Price computation:
-  // - SMS-Man (Lion): full priced from services API (admin markup already applied)
-  // - TextVerified (Panda): uses lazily fetched exact price if available, else estimate from services API
-  const estimatedPriceUsd =
-    (currentService as any)?.prices?.[selectedProvider] ??
-    currentService?.price ??
-    0;
+  // Price computation: all prices come from the aggregated services API in USD
+  // with admin pricing rules already applied. No per-service fetch needed.
   const currentPriceUsd =
-    selectedProvider === "panda" && tvExactPrice !== null
-      ? tvExactPrice
-      : estimatedPriceUsd;
+    currentService?.prices?.[selectedProvider] ?? currentService?.price ?? 0;
   const currentPriceNgn = Math.ceil(
     currentPriceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
   );
@@ -667,7 +599,7 @@ export default function NewOrderPage() {
     selectedCountry,
     selectedProvider: currentProvider?.name,
     rawPrice: currentService?.price,
-    providerPrice: (currentService as any)?.prices?.[selectedProvider],
+    providerPrice: currentService?.prices?.[selectedProvider],
     currentPriceUsd,
     usdToNgn,
     currentPriceNgn,
@@ -717,7 +649,7 @@ export default function NewOrderPage() {
           <div className="flex-shrink-0">
             {priceNgn > 0 ? (
               <div className="font-mono text-sm">
-                ₦{priceNgn.toLocaleString()}
+                {/* ₦{priceNgn.toLocaleString()} */}✅
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">✅</div>
@@ -748,10 +680,12 @@ export default function NewOrderPage() {
         >
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs bg-gray-200"></div>
-            <span className="font-medium truncate">{country.name}</span>
+            <span className="font-medium truncate hover:bg-accent">
+              {country.name}
+            </span>
           </div>
           <span className="font-bold text-primary">
-            ₦{(country.priceNgn || 0).toLocaleString()}
+            {/* ₦{(country.priceNgn || 0).toLocaleString()} */}
           </span>
         </button>
       </div>
@@ -1260,7 +1194,6 @@ export default function NewOrderPage() {
                 className="w-full h-12 text-base lg:hidden"
                 disabled={
                   creating ||
-                  tvPriceLoading ||
                   insufficientBalance ||
                   !selectedService ||
                   !selectedCountry ||
@@ -1271,11 +1204,6 @@ export default function NewOrderPage() {
                   <>
                     <Spinner className="mr-2 h-4 w-4" />
                     Processing...
-                  </>
-                ) : tvPriceLoading ? (
-                  <>
-                    <Spinner className="mr-2 h-4 w-4" />
-                    Loading price...
                   </>
                 ) : insufficientBalance ? (
                   "Insufficient Balance"
@@ -1363,22 +1291,13 @@ export default function NewOrderPage() {
                   <div className="pt-3 border-t-2 border-gray-300 dark:border-gray-600 mt-3">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-base">Total:</span>
-                      {tvPriceLoading ? (
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                          <Spinner className="h-4 w-4" />
-                          Loading...
-                        </span>
-                      ) : (
-                        <span
-                          className={`font-bold text-2xl ${
-                            insufficientBalance
-                              ? "text-red-600"
-                              : "text-primary"
-                          }`}
-                        >
-                          ₦{currentPriceNgn.toLocaleString()}
-                        </span>
-                      )}
+                      <span
+                        className={`font-bold text-2xl ${
+                          insufficientBalance ? "text-red-600" : "text-primary"
+                        }`}
+                      >
+                        ₦{currentPriceNgn.toLocaleString()}
+                      </span>
                     </div>
                     {insufficientBalance && (
                       <div className="mt-3 p-3 bg-red-50 dark:bg-red-950 rounded-lg">
@@ -1401,7 +1320,6 @@ export default function NewOrderPage() {
                   className="w-full h-12 text-base mt-5 shadow-lg"
                   disabled={
                     creating ||
-                    tvPriceLoading ||
                     insufficientBalance ||
                     !selectedService ||
                     !selectedCountry ||
@@ -1412,11 +1330,6 @@ export default function NewOrderPage() {
                     <>
                       <Spinner className="mr-2 h-4 w-4" />
                       Processing...
-                    </>
-                  ) : tvPriceLoading ? (
-                    <>
-                      <Spinner className="mr-2 h-4 w-4" />
-                      Loading price...
                     </>
                   ) : insufficientBalance ? (
                     "Insufficient Balance"

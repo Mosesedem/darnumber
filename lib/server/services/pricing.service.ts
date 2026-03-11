@@ -121,9 +121,8 @@ export class PricingService {
       if (rule.profitType === "PERCENTAGE") {
         profit = basePrice * (rule.profitValue / 100);
       } else {
-        // FIXED - the profitValue is a fixed amount to add
-        // ensure we convert the profits to NGN
-        profit = rule.profitValue / 1400;
+        // FIXED - profitValue is a flat USD amount to add to the base price
+        profit = rule.profitValue;
       }
       appliedRule = rule;
 

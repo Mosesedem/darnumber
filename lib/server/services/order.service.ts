@@ -5,7 +5,19 @@ import { TextVerifiedService } from "./textverified.service";
 
 const redis = new RedisService();
 
+const REFUND_TRANSACTION_OPTIONS = {
+  maxWait: 10000,
+  timeout: 30000,
+} as const;
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isExpiredTransactionError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2028"
+  );
+}
 
 /**
  * A robust fetch wrapper that handles retries with exponential backoff for network errors.
@@ -135,47 +147,53 @@ export class OrderService {
     console.log(
       "[OrderService.createOrder] Step 4: Creating order record and deducting balance...",
     );
-    const order = await prisma.$transaction(async (tx) => {
-      // Debit user's balance
-      await tx.user.update({
-        where: { id: userId },
-        data: { balance: { decrement: finalPrice } },
-      });
+    const order = await prisma.$transaction(
+      async (tx) => {
+        // Debit user's balance
+        await tx.user.update({
+          where: { id: userId },
+          data: { balance: { decrement: finalPrice } },
+        });
 
-      // Create a transaction record for the payment
-      const transaction = await tx.transaction.create({
-        data: {
-          userId,
-          transactionNumber: `TXN-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 9)}`,
-          type: "ORDER_PAYMENT",
-          amount: finalPrice,
-          currency: user.currency,
-          balanceBefore: user.balance,
-          balanceAfter: user.balance.sub(finalPrice),
-          status: "COMPLETED",
-          description: `Payment for ${serviceCode} in ${country}`,
-        },
-      });
+        // Create a transaction record for the payment
+        const transaction = await tx.transaction.create({
+          data: {
+            userId,
+            transactionNumber: `TXN-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 9)}`,
+            type: "ORDER_PAYMENT",
+            amount: finalPrice,
+            currency: user.currency,
+            balanceBefore: user.balance,
+            balanceAfter: user.balance.sub(finalPrice),
+            status: "COMPLETED",
+            description: `Payment for ${serviceCode} in ${country}`,
+          },
+        });
 
-      // Create the order record
-      const newOrder = await tx.order.create({
-        data: {
-          userId,
-          providerId: selectedProvider.id,
-          serviceCode,
-          country,
-          price: finalPrice,
-          finalPrice: finalPrice, // Final price (same as price for now, could be different with discounts)
-          transactionId: transaction.id,
-          status: "PROCESSING", // Status is now 'PROCESSING'
-          expiresAt: new Date(Date.now() + 20 * 60 * 1000), // 20-minute expiry
-        },
-      });
+        // Create the order record
+        const newOrder = await tx.order.create({
+          data: {
+            userId,
+            providerId: selectedProvider.id,
+            serviceCode,
+            country,
+            price: finalPrice,
+            finalPrice: finalPrice, // Final price (same as price for now, could be different with discounts)
+            transactionId: transaction.id,
+            status: "PROCESSING", // Status is now 'PROCESSING'
+            expiresAt: new Date(Date.now() + 20 * 60 * 1000), // 20-minute expiry
+          },
+        });
 
-      return newOrder;
-    });
+        return newOrder;
+      },
+      {
+        maxWait: 10000, // Max time to wait for a transaction slot (10s)
+        timeout: 15000, // Max transaction execution time (15s)
+      },
+    );
     console.log("[OrderService.createOrder] Order record created:", {
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -840,92 +858,111 @@ export class OrderService {
     orderId: string,
     reason: "USER_CANCELLED" | "PROVIDER_FAILURE" | "EXPIRED",
   ) {
-    return await prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        select: {
-          id: true,
-          userId: true,
-          price: true,
-          status: true,
-          user: { select: { balance: true } },
-        },
-      });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return await prisma.$transaction(async (tx) => {
+          const order = await tx.order.findUnique({
+            where: { id: orderId },
+            select: {
+              id: true,
+              userId: true,
+              price: true,
+              status: true,
+              user: { select: { balance: true } },
+            },
+          });
 
-      if (!order) {
-        console.error(`[Refund] Order ${orderId} not found.`);
-        return;
-      }
+          if (!order) {
+            console.error(`[Refund] Order ${orderId} not found.`);
+            return;
+          }
 
-      // Only refund if the order is in a refundable state
-      if (
-        order.status === "REFUNDED" ||
-        order.status === "COMPLETED" ||
-        order.status === "CANCELLED" ||
-        order.status === "FAILED" ||
-        order.status === "EXPIRED"
-      ) {
+          // Only refund if the order is in a refundable state
+          if (
+            order.status === "REFUNDED" ||
+            order.status === "COMPLETED" ||
+            order.status === "CANCELLED" ||
+            order.status === "FAILED" ||
+            order.status === "EXPIRED"
+          ) {
+            console.warn(
+              `[Refund] Order ${orderId} is already in a final state (${order.status}). No refund will be processed.`,
+            );
+            return;
+          }
+
+          // Update order status based on reason
+          let newStatus: "REFUNDED" | "CANCELLED" | "FAILED" | "EXPIRED" =
+            "REFUNDED";
+          if (reason === "USER_CANCELLED") newStatus = "CANCELLED";
+          if (reason === "PROVIDER_FAILURE") newStatus = "FAILED";
+          if (reason === "EXPIRED") newStatus = "EXPIRED";
+
+          // Atomic update: only update if order is still in a refundable state
+          // This prevents race conditions where two concurrent refund attempts
+          // both pass the status check above before either commits.
+          const updated = await tx.order.updateMany({
+            where: {
+              id: orderId,
+              status: {
+                notIn: [
+                  "REFUNDED",
+                  "COMPLETED",
+                  "CANCELLED",
+                  "FAILED",
+                  "EXPIRED",
+                ],
+              },
+            },
+            data: { status: newStatus },
+          });
+
+          // If no rows were updated, another refund already went through
+          if (updated.count === 0) {
+            console.warn(
+              `[Refund] Order ${orderId} was already processed by a concurrent refund. Aborting.`,
+            );
+            return;
+          }
+
+          // Refund the money
+          const newBalance = order.user.balance.add(order.price);
+          await tx.user.update({
+            where: { id: order.userId },
+            data: { balance: { increment: order.price } },
+          });
+
+          // Create a refund transaction
+          await tx.transaction.create({
+            data: {
+              userId: order.userId,
+              orderId: order.id,
+              transactionNumber: `REF-${Date.now()}-${order.id.slice(0, 4)}`,
+              type: "REFUND",
+              amount: order.price,
+              currency: "NGN", // Align with system default and order currency
+              balanceBefore: order.user.balance,
+              balanceAfter: newBalance,
+              status: "COMPLETED",
+              description: `Refund for order ${order.id} due to ${reason}`,
+            },
+          });
+
+          console.log(
+            `[Refund] Successfully processed refund for order ${orderId}.`,
+          );
+        }, REFUND_TRANSACTION_OPTIONS);
+      } catch (error) {
+        if (!isExpiredTransactionError(error) || attempt === 2) {
+          throw error;
+        }
+
         console.warn(
-          `[Refund] Order ${orderId} is already in a final state (${order.status}). No refund will be processed.`,
+          `[Refund] Transaction expired for order ${orderId}; retrying once...`,
         );
-        return;
+        await delay(250 * attempt);
       }
-
-      // Update order status based on reason
-      let newStatus: "REFUNDED" | "CANCELLED" | "FAILED" | "EXPIRED" =
-        "REFUNDED";
-      if (reason === "USER_CANCELLED") newStatus = "CANCELLED";
-      if (reason === "PROVIDER_FAILURE") newStatus = "FAILED";
-      if (reason === "EXPIRED") newStatus = "EXPIRED";
-
-      // Atomic update: only update if order is still in a refundable state
-      // This prevents race conditions where two concurrent refund attempts
-      // both pass the status check above before either commits.
-      const updated = await tx.order.updateMany({
-        where: {
-          id: orderId,
-          status: {
-            notIn: ["REFUNDED", "COMPLETED", "CANCELLED", "FAILED", "EXPIRED"],
-          },
-        },
-        data: { status: newStatus },
-      });
-
-      // If no rows were updated, another refund already went through
-      if (updated.count === 0) {
-        console.warn(
-          `[Refund] Order ${orderId} was already processed by a concurrent refund. Aborting.`,
-        );
-        return;
-      }
-
-      // Refund the money
-      const newBalance = order.user.balance.add(order.price);
-      await tx.user.update({
-        where: { id: order.userId },
-        data: { balance: { increment: order.price } },
-      });
-
-      // Create a refund transaction
-      await tx.transaction.create({
-        data: {
-          userId: order.userId,
-          orderId: order.id,
-          transactionNumber: `REF-${Date.now()}-${order.id.slice(0, 4)}`,
-          type: "REFUND",
-          amount: order.price,
-          currency: "NGN", // Align with system default and order currency
-          balanceBefore: order.user.balance,
-          balanceAfter: newBalance,
-          status: "COMPLETED",
-          description: `Refund for order ${order.id} due to ${reason}`,
-        },
-      });
-
-      console.log(
-        `[Refund] Successfully processed refund for order ${orderId}.`,
-      );
-    });
+    }
   }
 
   async cancelOrder(orderId: string, userId: string) {

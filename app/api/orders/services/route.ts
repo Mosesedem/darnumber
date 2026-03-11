@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { PROVIDERS } from "@/lib/constants/providers";
@@ -12,44 +11,57 @@ export const runtime = "nodejs";
 
 const redis = getRedisService();
 const SERVICES_CACHE_KEY = "orders:services:aggregated:v2";
-const SERVICES_CACHE_TTL_SECONDS = 5 * 60;
+const SERVICES_CACHE_TTL_SECONDS = 30 * 60; // 30 min — amortises the expensive build cost
+const PROVIDER_FETCH_TIMEOUT_MS = 25000;
 
 // TextVerified default base price in USD (most services are $2.50)
 // Exact price is fetched lazily via /api/providers/textverified/price when user selects a service
 const TV_DEFAULT_BASE_PRICE_USD = 2.5;
 
 // In-memory cache fallback for when Redis is OOM
-let memoryCache: { data: string; expiresAt: number } | null = null;
+// `cachedAt` is stored so the stale-while-revalidate logic can check age.
+const SERVICES_STALE_AFTER_SECONDS = 24 * 60; // serve stale, refresh in background after 24 min
+let memoryCache: { data: string; expiresAt: number; cachedAt: number } | null =
+  null;
+let refreshInProgress = false;
 
-export async function GET(req: NextRequest) {
-  console.log("\n╔════════════════════════════════════════════════╗");
-  console.log("║   GET /api/orders/services - Provider Aggregator");
-  console.log("╚════════════════════════════════════════════════╝");
+async function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs = PROVIDER_FETCH_TIMEOUT_MS,
+): Promise<T> {
+  let timeoutId: NodeJS.Timeout | undefined;
+
   try {
-    console.log("[Auth] Authenticating user...");
-    const authResult = await requireAuth();
-    console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated`);
-
-    // Try Redis cache first, then in-memory fallback
-    try {
-      const cachedServices = await redis.get(SERVICES_CACHE_KEY);
-      if (cachedServices) {
-        console.log("[Cache] ✓ Returning cached aggregated services (Redis)");
-        return json({ ok: true, data: JSON.parse(cachedServices) });
-      }
-    } catch (e) {
-      console.warn("[Cache] Redis read failed, checking memory cache");
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
     }
-    if (memoryCache && Date.now() < memoryCache.expiresAt) {
-      console.log("[Cache] ✓ Returning cached aggregated services (memory)");
-      return json({ ok: true, data: JSON.parse(memoryCache.data) });
-    }
+  }
+}
 
-    console.log("[Rates] Fetching exchange rates from cache/API...");
+/**
+ * Fetches all provider services, applies admin pricing rules, and writes the
+ * result to Redis + in-memory cache. Guarded by `refreshInProgress` so
+ * concurrent stale-while-revalidate background triggers are coalesced into one.
+ */
+async function buildAndCacheServices(): Promise<void> {
+  if (refreshInProgress) return;
+  refreshInProgress = true;
+  try {
+    console.log("[Build] Starting services cache build...");
     const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
     const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
     console.log(
-      `[Rates] ✓ 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
+      `[Build] Rates: 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
     );
 
     const providers = [
@@ -69,76 +81,73 @@ export async function GET(req: NextRequest) {
       },
     ];
 
-    console.log(
-      `[Providers] Available: ${providers.map((p) => p.name).join(", ")}`,
-    );
-
     const servicesMap = new Map<string, any>();
 
-    let smsManServices: any[] = [];
-    try {
-      console.log("[SMSMan] Fetching services...");
-      const smsManService = new SMSManService();
-      smsManServices = await smsManService.getAvailableServices();
-      console.log(
-        `[SMSMan] ✓ Fetched ${smsManServices.length} services (RUB pricing)`,
-      );
-    } catch (err) {
+    console.log("[Build] Fetching provider services in parallel...");
+    const [smsManResult, tvResult] = await Promise.allSettled([
+      withTimeout(
+        (async () => {
+          console.log("[SMSMan] Fetching services...");
+          const smsManService = new SMSManService();
+          const services = await smsManService.getAvailableServices();
+          console.log(
+            `[SMSMan] ✓ Fetched ${services.length} services (RUB pricing)`,
+          );
+          return services;
+        })(),
+        "SMS-Man service fetch",
+        60 * 1000, // 60s — sub-caches are warmed at startup; cold-start tolerance
+      ),
+      withTimeout(
+        (async () => {
+          console.log("[TextVerified] Fetching service list...");
+          const textVerifiedService = new TextVerifiedService();
+          const basicServices =
+            await textVerifiedService.getAvailableServices();
+          const services = basicServices.map((s: any) => ({
+            ...s,
+            price: TV_DEFAULT_BASE_PRICE_USD,
+          }));
+          console.log(`[TextVerified] ✓ Fetched ${services.length} services`);
+          return services;
+        })(),
+        "TextVerified service fetch",
+        25 * 1000,
+      ),
+    ]);
+
+    const smsManServices =
+      smsManResult.status === "fulfilled" ? smsManResult.value : [];
+    if (smsManResult.status === "rejected") {
       console.error(
         "[SMSMan] ✗ Error:",
-        err instanceof Error ? err.message : err,
+        smsManResult.reason instanceof Error
+          ? smsManResult.reason.message
+          : smsManResult.reason,
       );
-      smsManServices = [];
     }
 
-    let tvServices: any[] = [];
-    try {
-      console.log(
-        "[TextVerified] Fetching service list (fast, no individual pricing)...",
-      );
-      const textVerifiedService = new TextVerifiedService();
-      // Use getAvailableServices() — single API call, cached 1hr
-      // Individual pricing is fetched lazily on the frontend when user selects a service
-      const basicServices = await textVerifiedService.getAvailableServices();
-      tvServices = basicServices.map((s: any) => ({
-        ...s,
-        price: TV_DEFAULT_BASE_PRICE_USD,
-      }));
-      console.log(
-        `[TextVerified] ✓ Fetched ${tvServices.length} services (default price: $${TV_DEFAULT_BASE_PRICE_USD})`,
-      );
-      if (tvServices.length > 0) {
-        console.log(`[TextVerified] Sample service:`, {
-          name: tvServices[0].serviceName,
-          price: tvServices[0].price,
-          capability: tvServices[0].capability,
-        });
-      }
-    } catch (err) {
+    const tvServices = tvResult.status === "fulfilled" ? tvResult.value : [];
+    if (tvResult.status === "rejected") {
       console.error(
-        "[TextVerified] ✗ Error fetching services:",
-        err instanceof Error ? err.message : err,
+        "[TextVerified] ✗ Error:",
+        tvResult.reason instanceof Error
+          ? tvResult.reason.message
+          : tvResult.reason,
       );
-      tvServices = [];
     }
 
     if (smsManServices.length === 0 && tvServices.length === 0) {
-      console.error("[Error] No services available from any provider");
-      return error(
-        "No services available from providers. Please check API keys and try again.",
-        503,
+      console.error(
+        "[Build] No services from any provider — skipping cache write",
       );
+      return;
     }
 
     console.log(
-      `[Summary] Total raw services: SMS-Man ${
-        smsManServices.length
-      } + TextVerified ${tvServices.length} = ${
-        smsManServices.length + tvServices.length
-      }`,
+      `[Build] Total raw: SMS-Man ${smsManServices.length} + TextVerified ${tvServices.length}`,
     );
 
-    // Collect all services for batch pricing calculation using admin rules
     const servicesToPrice: Array<{
       basePrice: number;
       serviceCode: string;
@@ -151,20 +160,13 @@ export async function GET(req: NextRequest) {
       providerName: string;
     }> = [];
 
-    // Process SMS-Man services: convert RUB to USD base price
-    console.log(
-      "[Processing] Collecting SMS-Man base prices for admin pricing rules...",
-    );
     smsManServices.forEach((service: any, idx: number) => {
-      const priceRUB = service.price; // SMS-Man returns prices in Russian Rubles
-      const baseUSD = Number((priceRUB / rubToUsdRate).toFixed(4));
-
+      const baseUSD = Number((service.price / rubToUsdRate).toFixed(4));
       if (idx === 0) {
         console.log(
-          `[SMSMan] Sample base: ${priceRUB} RUB (provider) → ${baseUSD} USD (before admin markup)`,
+          `[SMSMan] Sample base: ${service.price} RUB → $${baseUSD} USD`,
         );
       }
-
       servicesToPrice.push({
         basePrice: baseUSD,
         serviceCode: service.code,
@@ -178,23 +180,15 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    // Process TextVerified services: USD base price
-    console.log(
-      "[Processing] Collecting TextVerified base prices for admin pricing rules...",
-    );
     tvServices.forEach((service: any, idx: number) => {
       const baseUSD = service.price || 0;
-
-      if (idx === 0 && tvServices.length > 0) {
-        console.log(
-          `[TextVerified] Sample base: ${service.name} = ${baseUSD} USD (before admin markup)`,
-        );
+      if (idx === 0) {
+        console.log(`[TextVerified] Sample base: $${baseUSD} USD`);
       }
-
       servicesToPrice.push({
         basePrice: baseUSD,
-        serviceCode: service.serviceName || service.code, // Use serviceName from new API
-        country: service.country || "US", // TextVerified is US only
+        serviceCode: service.serviceName || service.code,
+        country: "US",
       });
       serviceMetadata.push({
         key: `${service.serviceName || service.code}-US`,
@@ -209,31 +203,20 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    // Apply admin pricing rules to all services in batch
-    console.log("[Pricing] Applying admin pricing rules to all services...");
+    console.log("[Build] Applying admin pricing rules...");
     const pricingResults =
       await PricingService.calculatePrices(servicesToPrice);
 
-    // Log first pricing result for debugging
     if (pricingResults.length > 0) {
-      const firstResult = pricingResults[0];
+      const first = pricingResults[0];
       console.log(
-        `[Pricing] Sample result: base $${firstResult.basePrice.toFixed(
-          4,
-        )} + profit $${firstResult.profit.toFixed(
-          4,
-        )} = $${firstResult.finalPrice.toFixed(4)}`,
-        firstResult.ruleApplied
-          ? `(Rule: ${firstResult.ruleApplied.profitType} ${
-              firstResult.ruleApplied.profitValue
-            }${
-              firstResult.ruleApplied.profitType === "PERCENTAGE" ? "%" : " USD"
-            })`
-          : "(Default 20% markup)",
+        `[Build] Sample pricing: $${first.basePrice.toFixed(4)} base + $${first.profit.toFixed(4)} profit = $${first.finalPrice.toFixed(4)}`,
+        first.ruleApplied
+          ? `(Rule: ${first.ruleApplied.profitType} ${first.ruleApplied.profitValue})`
+          : "(Default 20%)",
       );
     }
 
-    // Build services map with priced data
     pricingResults.forEach((priceResult, idx) => {
       const metadata = serviceMetadata[idx];
       const service = metadata.providerData;
@@ -297,11 +280,13 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    // Cache in Redis (may fail if OOM) and always cache in memory as fallback
-    const resultJson = JSON.stringify(result);
+    // Embed cachedAt timestamp so stale-while-revalidate can check cache age
+    const now = Date.now();
+    const resultJson = JSON.stringify({ ...result, cachedAt: now });
     memoryCache = {
       data: resultJson,
-      expiresAt: Date.now() + SERVICES_CACHE_TTL_SECONDS * 1000,
+      expiresAt: now + SERVICES_CACHE_TTL_SECONDS * 1000,
+      cachedAt: now,
     };
     try {
       await redis.set(
@@ -309,38 +294,89 @@ export async function GET(req: NextRequest) {
         resultJson,
         SERVICES_CACHE_TTL_SECONDS,
       );
-    } catch (cacheErr) {
+    } catch {
       console.warn(
-        "[Cache] Redis write failed (OOM?), using memory cache only",
+        "[Build] Redis write failed (OOM?), using memory cache only",
       );
     }
 
-    console.log("\n[Summary] ✓ Aggregation complete:");
-    console.log(`  • Total unique services: ${result.services.length}`);
-    console.log(`  • Providers: ${result.providers.length}`);
-    console.log(`  • All prices in: USD (with admin pricing rules applied)`);
-    console.log(`  • SMS-Man (RUB→USD): ${smsManServices.length} services`);
-    console.log(`  • TextVerified (USD): ${tvServices.length} services`);
-    if (result.services.length > 0) {
-      console.log(
-        "  • Sample service:",
-        JSON.stringify(result.services[0], null, 2),
-      );
+    console.log(
+      `[Build] ✓ Cache built: ${result.services.length} unique services`,
+      `(SMS-Man: ${smsManServices.length}, TextVerified: ${tvServices.length})`,
+    );
+  } finally {
+    refreshInProgress = false;
+  }
+}
+
+export async function GET() {
+  console.log("\n╔════════════════════════════════════════════════╗");
+  console.log("║   GET /api/orders/services - Provider Aggregator");
+  console.log("╚════════════════════════════════════════════════╝");
+  try {
+    console.log("[Auth] Authenticating user...");
+    const authResult = await requireAuth();
+    console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated`);
+
+    // ── Stale-while-revalidate cache ─────────────────────────────────────────
+    // Always return cached data immediately. If the data is older than
+    // SERVICES_STALE_AFTER_SECONDS, kick off a background rebuild so the
+    // *next* request benefits — no user ever waits for the expensive fetch.
+    const serveCache = (raw: string, source: string): Response => {
+      const parsed = JSON.parse(raw) as Record<string, unknown> & {
+        cachedAt?: number;
+      };
+      const ageSeconds = (Date.now() - (parsed.cachedAt ?? 0)) / 1000;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { cachedAt, ...clientData } = parsed;
+
+      if (ageSeconds > SERVICES_STALE_AFTER_SECONDS && !refreshInProgress) {
+        console.log(
+          `[Cache] ${source} is ${Math.round(ageSeconds / 60)}min old — rebuilding in background`,
+        );
+        void buildAndCacheServices();
+      } else {
+        console.log(
+          `[Cache] ✓ Serving ${source} (${Math.round(ageSeconds / 60)}min old)`,
+        );
+      }
+      console.log("╚════════════════════════════════════════════════╝\n");
+      return json({ ok: true, data: clientData });
+    };
+
+    try {
+      const cached = await redis.get(SERVICES_CACHE_KEY);
+      if (cached) return serveCache(cached, "Redis cache");
+    } catch {
+      console.warn("[Cache] Redis read failed, checking memory cache");
     }
+
+    if (memoryCache && Date.now() < memoryCache.expiresAt) {
+      return serveCache(memoryCache.data, "memory cache");
+    }
+
+    // ── Cache miss: build synchronously then serve ────────────────────────────
+    console.log("[Cache] Miss — building synchronously...");
+    await buildAndCacheServices();
+
+    if (memoryCache) {
+      return serveCache(memoryCache.data, "fresh build");
+    }
+
+    // Both providers returned empty sets
     console.log("╚════════════════════════════════════════════════╝\n");
-
-    return json({ ok: true, data: result });
+    return error(
+      "No services available from providers. Please check API keys and try again.",
+      503,
+    );
   } catch (e) {
-    console.error("\n[Error] ✗ Request failed");
-    console.error("Details:", {
-      message: e instanceof Error ? e.message : "Unknown error",
-      stack: e instanceof Error ? e.stack : undefined,
-    });
-
     if (e instanceof Error && e.message === "Unauthorized") {
       return error("Unauthorized", 401);
     }
-
+    console.error(
+      "[Error] ✗ Request failed:",
+      e instanceof Error ? e.message : e,
+    );
     console.log("╚════════════════════════════════════════════════╝\n");
     return error(
       `Service aggregation failed: ${e instanceof Error ? e.message : "Unknown error"}`,

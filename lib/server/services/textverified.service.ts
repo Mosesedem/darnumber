@@ -414,7 +414,6 @@ export class TextVerifiedService {
   async requestNumber(
     serviceName: string,
     country: string,
-    orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
     console.log(
       `[TextVerified] Requesting number for ${serviceName} in ${country}`,
@@ -435,43 +434,73 @@ export class TextVerifiedService {
     }
 
     const verificationUrl = `${this.apiUrl}/verifications`;
-    const body = {
-      serviceName,
-      capability: service.capability,
-    };
 
-    console.log(
-      `[TextVerified] Creating verification with capability: ${service.capability}`,
+    // Try capabilities in preference order.
+    // "sms" is attempted first because voice inventory is frequently exhausted.
+    // The service's own advertised capability is tried next, then smsAndVoiceCombo.
+    // Duplicates are removed so we never POST the same capability twice.
+    const preferred: Array<"sms" | "voice" | "smsAndVoiceCombo"> = [
+      "sms",
+      service.capability,
+      "smsAndVoiceCombo",
+    ];
+    const capabilitiesToTry = preferred.filter(
+      (v, i, arr) => arr.indexOf(v) === i,
     );
 
-    const res = await fetchWithRetry(verificationUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${bearerToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    let lastError: Error = new Error(
+      `Service ${serviceName} is out of stock for all capability types.`,
+    );
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to request number: ${res.status} - ${errorText}`);
+    for (const capability of capabilitiesToTry) {
+      console.log(
+        `[TextVerified] Creating verification with capability: ${capability}`,
+      );
+
+      const res = await fetchWithRetry(verificationUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ serviceName, capability }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        const err = new Error(
+          `Failed to request number: ${res.status} - ${errorText}`,
+        );
+        // 400 "Unavailable/Out of stock" → try next capability
+        if (res.status === 400) {
+          console.warn(
+            `[TextVerified] capability=${capability} unavailable for ${serviceName}, trying next...`,
+          );
+          lastError = err;
+          continue;
+        }
+        // Any other error (401, 5xx, etc.) → bail immediately
+        throw err;
+      }
+
+      const responseData = await res.json();
+      const href: string = responseData.href;
+
+      if (!href) {
+        throw new Error("Missing verification href in response");
+      }
+
+      console.log(`[TextVerified] ✓ Verification created: ${href}`);
+
+      return {
+        id: href,
+        phoneNumber: responseData.number,
+        cost: responseData.price,
+      };
     }
 
-    const responseData = await res.json();
-    const href: string = responseData.href;
-
-    if (!href) {
-      throw new Error("Missing verification href in response");
-    }
-
-    console.log(`[TextVerified] ✓ Verification created: ${href}`);
-
-    return {
-      id: href,
-      phoneNumber: responseData.number,
-      cost: responseData.price,
-    };
+    // All capabilities exhausted
+    throw lastError;
   }
 
   /**
