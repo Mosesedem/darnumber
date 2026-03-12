@@ -685,7 +685,7 @@ export default function NewOrderPage() {
             </span>
           </div>
           <span className="font-bold text-primary">
-            {/* ₦{(country.priceNgn || 0).toLocaleString()} */}
+            ₦{(country.priceNgn || 0).toLocaleString()}
           </span>
         </button>
       </div>
