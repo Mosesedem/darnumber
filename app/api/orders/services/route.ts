@@ -16,7 +16,7 @@ const PROVIDER_FETCH_TIMEOUT_MS = 25000;
 
 // TextVerified default base price in USD (most services are $2.50)
 // Exact price is fetched lazily via /api/providers/textverified/price when user selects a service
-const TV_DEFAULT_BASE_PRICE_USD = 2.5;
+const TV_BASE_PRICE_CAPABILITY = "sms"; // Fetch pricing for SMS capability (voice is out of stock)
 
 // In-memory cache fallback for when Redis is OOM
 // `cachedAt` is stored so the stale-while-revalidate logic can check age.
@@ -100,19 +100,25 @@ async function buildAndCacheServices(): Promise<void> {
       ),
       withTimeout(
         (async () => {
-          console.log("[TextVerified] Fetching service list...");
+          console.log(
+            "[TextVerified] Fetching services with real per-service pricing (sms capability)...",
+          );
           const textVerifiedService = new TextVerifiedService();
-          const basicServices =
-            await textVerifiedService.getAvailableServices();
-          const services = basicServices.map((s: any) => ({
-            ...s,
-            price: TV_DEFAULT_BASE_PRICE_USD,
-          }));
-          console.log(`[TextVerified] ✓ Fetched ${services.length} services`);
+          // Use 'sms' capability override so prices reflect SMS numbers (not voice,
+          // which is currently out of stock at TextVerified and returns wrong prices).
+          const services = await textVerifiedService.getServicesWithPricing(
+            "mobile",
+            false,
+            false,
+            TV_BASE_PRICE_CAPABILITY,
+          );
+          console.log(
+            `[TextVerified] ✓ Fetched ${services.length} services with real prices`,
+          );
           return services;
         })(),
         "TextVerified service fetch",
-        25 * 1000,
+        45 * 1000, // 45s — includes batched per-service pricing fetches; individual prices are Redis-cached for 30min
       ),
     ]);
 

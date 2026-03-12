@@ -342,8 +342,12 @@ export class TextVerifiedService {
     numberType: "mobile" | "voip" | "landline" = "mobile",
     areaCode: boolean = false,
     carrier: boolean = false,
+    capabilityOverride?: "sms" | "voice" | "smsAndVoiceCombo",
   ): Promise<Array<TextVerifiedServiceData & { price: number }>> {
-    console.log(`[TextVerified] Fetching services with pricing...`);
+    const capabilityLabel = capabilityOverride ?? "(per-service)";
+    console.log(
+      `[TextVerified] Fetching services with pricing (capability: ${capabilityLabel})...`,
+    );
 
     // Get all available services
     const services = await this.getAvailableServices(
@@ -367,7 +371,7 @@ export class TextVerifiedService {
             areaCode,
             carrier,
             numberType,
-            capability: service.capability,
+            capability: capabilityOverride ?? service.capability,
           });
 
           return {
