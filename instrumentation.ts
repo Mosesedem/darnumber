@@ -84,23 +84,20 @@ export async function register() {
     // Each has a 24-hour Redis TTL so this runs once per day in practice.
     // Ensures the first GET /api/orders/services request completes in <5s
     // instead of the cold-start ~40s it takes to download all SMS-Man data.
-    // Warm SMS-Man sub-caches commented out due to private method access
-    // setTimeout(() => {
-    //   void (async () => {
-    //     try {
-    //       const { SMSManService } =
-    //         await import("@/lib/server/services/order.service");
-    //       const sms = new SMSManService();
-    //       console.log(
-    //         "[Startup] Warming SMS-Man caches (countries + applications)...",
-    //       );
-    //       await Promise.all([sms.getCountries(), sms.getApplications()]);
-    //       console.log("[Startup] ✓ SMS-Man sub-caches warmed");
-    //     } catch (e) {
-    //       console.warn("[Startup] SMS-Man cache warm failed:", e);
-    //     }
-    //   })();
-    // }, 3000); // 3s after boot — after initial auth setup completes
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const { SMSManService } =
+            await import("@/lib/server/services/order.service");
+          const sms = new SMSManService();
+          console.log("[Startup] Warming SMS-Man service cache...");
+          await sms.getAvailableServices();
+          console.log("[Startup] ✓ SMS-Man service cache warmed");
+        } catch (e) {
+          console.warn("[Startup] SMS-Man cache warm failed:", e);
+        }
+      })();
+    }, 3000); // 3s after boot — after initial auth setup completes
 
     console.log(
       `[OrderExpirer] Registered background sweeper (interval=${intervalMs}ms)`,

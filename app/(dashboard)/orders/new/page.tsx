@@ -76,6 +76,8 @@ export default function NewOrderPage() {
     Map<string, string>
   >(new Map());
   const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
+  const [tvExactPriceUsd, setTvExactPriceUsd] = useState<number | null>(null);
+  const [tvPriceLoading, setTvPriceLoading] = useState(false);
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -437,6 +439,48 @@ export default function NewOrderPage() {
     setSelectedCountry("");
   }, [selectedService]);
 
+  // Fetch exact TextVerified price only for the currently selected service.
+  // This keeps /api/orders/services fast while still giving accurate TV pricing.
+  useEffect(() => {
+    let cancelled = false;
+    const isTextVerified = selectedProvider === "panda";
+
+    if (!isTextVerified || !selectedService) {
+      setTvExactPriceUsd(null);
+      setTvPriceLoading(false);
+      return;
+    }
+
+    const fetchTextVerifiedPrice = async () => {
+      try {
+        setTvPriceLoading(true);
+        setTvExactPriceUsd(null);
+        const res = await api.getTextVerifiedPrice(selectedService);
+        if (cancelled) return;
+
+        const exactUsd = res?.data?.finalUsd;
+        if (typeof exactUsd === "number" && exactUsd > 0) {
+          setTvExactPriceUsd(exactUsd);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn(
+            `[NewOrderPage] Failed to fetch exact TextVerified price for ${selectedService}:`,
+            e,
+          );
+        }
+      } finally {
+        if (!cancelled) setTvPriceLoading(false);
+      }
+    };
+
+    void fetchTextVerifiedPrice();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider, selectedService]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -586,13 +630,17 @@ export default function NewOrderPage() {
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
 
-  // Price computation: all prices come from the aggregated services API in USD
-  // with admin pricing rules already applied. No per-service fetch needed.
-  const currentPriceUsd =
+  const aggregatedPriceUsd =
     currentService?.prices?.[selectedProvider] ?? currentService?.price ?? 0;
+  const currentPriceUsd =
+    selectedProvider === "panda" && tvExactPriceUsd !== null
+      ? tvExactPriceUsd
+      : aggregatedPriceUsd;
   const currentPriceNgn = Math.ceil(
     currentPriceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
   );
+  const waitingForTvPrice =
+    selectedProvider === "panda" && !!selectedService && tvPriceLoading;
 
   console.log("[NewOrderPage] Current price computation:", {
     selectedService,
@@ -600,6 +648,8 @@ export default function NewOrderPage() {
     selectedProvider: currentProvider?.name,
     rawPrice: currentService?.price,
     providerPrice: currentService?.prices?.[selectedProvider],
+    tvExactPriceUsd,
+    tvPriceLoading,
     currentPriceUsd,
     usdToNgn,
     currentPriceNgn,
@@ -1194,6 +1244,7 @@ export default function NewOrderPage() {
                 className="w-full h-12 text-base lg:hidden"
                 disabled={
                   creating ||
+                  waitingForTvPrice ||
                   insufficientBalance ||
                   !selectedService ||
                   !selectedCountry ||
@@ -1204,6 +1255,11 @@ export default function NewOrderPage() {
                   <>
                     <Spinner className="mr-2 h-4 w-4" />
                     Processing...
+                  </>
+                ) : waitingForTvPrice ? (
+                  <>
+                    <Spinner className="mr-2 h-4 w-4" />
+                    Fetching price...
                   </>
                 ) : insufficientBalance ? (
                   "Insufficient Balance"
@@ -1296,7 +1352,14 @@ export default function NewOrderPage() {
                           insufficientBalance ? "text-red-600" : "text-primary"
                         }`}
                       >
-                        ₦{currentPriceNgn.toLocaleString()}
+                        {waitingForTvPrice ? (
+                          <span className="inline-flex items-center gap-2 text-base font-medium">
+                            <Spinner className="h-4 w-4" />
+                            Fetching price...
+                          </span>
+                        ) : (
+                          <>₦{currentPriceNgn.toLocaleString()}</>
+                        )}
                       </span>
                     </div>
                     {insufficientBalance && (
@@ -1320,6 +1383,7 @@ export default function NewOrderPage() {
                   className="w-full h-12 text-base mt-5 shadow-lg"
                   disabled={
                     creating ||
+                    waitingForTvPrice ||
                     insufficientBalance ||
                     !selectedService ||
                     !selectedCountry ||
@@ -1330,6 +1394,11 @@ export default function NewOrderPage() {
                     <>
                       <Spinner className="mr-2 h-4 w-4" />
                       Processing...
+                    </>
+                  ) : waitingForTvPrice ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Fetching price...
                     </>
                   ) : insufficientBalance ? (
                     "Insufficient Balance"
