@@ -144,6 +144,16 @@ async function buildAndCacheServices(): Promise<void> {
       return;
     }
 
+    // Refuse to cache a partial result that has no Lion (SMS-Man) services.
+    // A previous poll may have cached a TextVerified-only snapshot when SMS-Man
+    // timed out; we must not let that sit for 30 minutes.
+    if (smsManServices.length === 0) {
+      console.warn(
+        "[Build] SMS-Man returned 0 services — skipping cache write to avoid serving lion-less snapshot",
+      );
+      return;
+    }
+
     console.log(
       `[Build] Total raw: SMS-Man ${smsManServices.length} + TextVerified ${tvServices.length}`,
     );
@@ -322,13 +332,57 @@ export async function GET() {
     // Always return cached data immediately. If the data is older than
     // SERVICES_STALE_AFTER_SECONDS, kick off a background rebuild so the
     // *next* request benefits — no user ever waits for the expensive fetch.
-    const serveCache = (raw: string, source: string): Response => {
+    const serveCache = async (
+      raw: string,
+      source: string,
+    ): Promise<Response> => {
       const parsed = JSON.parse(raw) as Record<string, unknown> & {
         cachedAt?: number;
+        services?: Array<{ providers?: Array<{ id: string }> }>;
       };
+
+      // Validate: if the cached payload has no Lion services, it was built during
+      // an SMS-Man timeout. Force a synchronous rebuild rather than serving it.
+      const hasLion =
+        Array.isArray(parsed.services) &&
+        parsed.services.some((s) =>
+          s.providers?.some((p) => p.id === PROVIDERS.LION.id),
+        );
+      if (!hasLion) {
+        console.warn(
+          `[Cache] ${source} contains no Lion services — discarding and rebuilding synchronously`,
+        );
+        // Delete poisoned cache entries so they are not served again
+        try {
+          await redis.del(SERVICES_CACHE_KEY);
+        } catch {
+          /* ignore */
+        }
+        memoryCache = null;
+        await buildAndCacheServices();
+        // Use `as` cast to escape TypeScript's control-flow narrowing of the module-level variable
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const freshCacheData = memoryCache as any as {
+          data: string;
+          expiresAt: number;
+        } | null;
+        if (freshCacheData) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { cachedAt, ...rest } = JSON.parse(
+            freshCacheData.data,
+          ) as Record<string, unknown> & { cachedAt?: number };
+          return json({ ok: true, data: rest });
+        }
+        return error(
+          "No services available from providers. Please check API keys and try again.",
+          503,
+        );
+      }
+
       const ageSeconds = (Date.now() - (parsed.cachedAt ?? 0)) / 1000;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { cachedAt, ...clientData } = parsed;
+      const { cachedAt, services: _s, ...clientData } = parsed;
+      const clientPayload = { ...clientData, services: parsed.services };
 
       if (ageSeconds > SERVICES_STALE_AFTER_SECONDS && !refreshInProgress) {
         console.log(
@@ -337,30 +391,30 @@ export async function GET() {
         void buildAndCacheServices();
       } else {
         console.log(
-          `[Cache] ✓ Serving ${source} (${Math.round(ageSeconds / 60)}min old)`,
+          `[Cache] ✓ Serving ${source} (${Math.round(ageSeconds / 60)}min old, ${parsed.services?.length ?? 0} services, has Lion: yes)`,
         );
       }
       console.log("╚════════════════════════════════════════════════╝\n");
-      return json({ ok: true, data: clientData });
+      return json({ ok: true, data: clientPayload });
     };
 
     try {
       const cached = await redis.get(SERVICES_CACHE_KEY);
-      if (cached) return serveCache(cached, "Redis cache");
+      if (cached) return await serveCache(cached, "Redis cache");
     } catch {
       console.warn("[Cache] Redis read failed, checking memory cache");
     }
 
     if (memoryCache && Date.now() < memoryCache.expiresAt) {
-      return serveCache(memoryCache.data, "memory cache");
+      return await serveCache(memoryCache.data, "memory cache");
     }
 
-    // ── Cache miss: build synchronously then serve ────────────────────────────
+    // ── Cache miss: build synchronously then serve ────────────────────────────────────
     console.log("[Cache] Miss — building synchronously...");
     await buildAndCacheServices();
 
     if (memoryCache) {
-      return serveCache(memoryCache.data, "fresh build");
+      return await serveCache(memoryCache.data, "fresh build");
     }
 
     // Both providers returned empty sets
