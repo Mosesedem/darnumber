@@ -738,7 +738,7 @@ export default function NewOrderPage() {
             {/* ₦{(country.priceNgn || 0).toLocaleString()} */}
 
             {waitingForTvPrice ? (
-              <Spinner size="sm" className="animate-spin" />
+              <Spinner className="h-4 w-4 animate-spin" />
             ) : currentPriceNgn > 0 ? (
               `₦${currentPriceNgn.toLocaleString()}`
             ) : (

@@ -24,6 +24,23 @@ const SERVICES_STALE_AFTER_SECONDS = 24 * 60; // serve stale, refresh in backgro
 let memoryCache: { data: string; expiresAt: number; cachedAt: number } | null =
   null;
 let refreshInProgress = false;
+type AggregatedServicesPayload = {
+  services: unknown[];
+  providers: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    logo?: string;
+    cover: string;
+  }>;
+  exchangeRate: {
+    usdToNgn: number;
+    usdToRub: number;
+    source: string;
+    timestamp: string;
+  };
+};
+let refreshPromise: Promise<AggregatedServicesPayload | null> | null = null;
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -53,272 +70,280 @@ async function withTimeout<T>(
  * result to Redis + in-memory cache. Guarded by `refreshInProgress` so
  * concurrent stale-while-revalidate background triggers are coalesced into one.
  */
-async function buildAndCacheServices(): Promise<void> {
-  if (refreshInProgress) return;
+async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null> {
+  if (refreshInProgress && refreshPromise) {
+    return refreshPromise;
+  }
+
   refreshInProgress = true;
-  try {
-    console.log("[Build] Starting services cache build...");
-    const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
-    const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
-    console.log(
-      `[Build] Rates: 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
-    );
-
-    const providers = [
-      {
-        id: PROVIDERS.LION.id,
-        name: "sms-man",
-        displayName: PROVIDERS.LION.displayName,
-        logo: PROVIDERS.LION.logo,
-        cover: "All Countries",
-      },
-      {
-        id: PROVIDERS.PANDA.id,
-        name: "textverified",
-        displayName: PROVIDERS.PANDA.displayName,
-        logo: PROVIDERS.PANDA.logo,
-        cover: "United States",
-      },
-    ];
-
-    const servicesMap = new Map<string, any>();
-
-    console.log("[Build] Fetching provider services in parallel...");
-    const [smsManResult, tvResult] = await Promise.allSettled([
-      withTimeout(
-        (async () => {
-          console.log("[SMSMan] Fetching services...");
-          const smsManService = new SMSManService();
-          const services = await smsManService.getAvailableServices();
-          console.log(
-            `[SMSMan] ✓ Fetched ${services.length} services (RUB pricing)`,
-          );
-          return services;
-        })(),
-        "SMS-Man service fetch",
-        60 * 1000, // 60s — sub-caches are warmed at startup; cold-start tolerance
-      ),
-      withTimeout(
-        (async () => {
-          console.log("[TextVerified] Fetching service list...");
-          const textVerifiedService = new TextVerifiedService();
-          const basicServices =
-            await textVerifiedService.getAvailableServices();
-          const services = basicServices.map((service) => ({
-            ...service,
-            price: TV_DEFAULT_BASE_PRICE_USD,
-          }));
-          console.log(
-            `[TextVerified] ✓ Fetched ${services.length} services (baseline pricing)`,
-          );
-          return services;
-        })(),
-        "TextVerified service fetch",
-        25 * 1000,
-      ),
-    ]);
-
-    const smsManServices =
-      smsManResult.status === "fulfilled" ? smsManResult.value : [];
-    if (smsManResult.status === "rejected") {
-      console.error(
-        "[SMSMan] ✗ Error:",
-        smsManResult.reason instanceof Error
-          ? smsManResult.reason.message
-          : smsManResult.reason,
+  refreshPromise = (async () => {
+    try {
+      console.log("[Build] Starting services cache build...");
+      const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
+      const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
+      console.log(
+        `[Build] Rates: 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
       );
-    }
 
-    const tvServices = tvResult.status === "fulfilled" ? tvResult.value : [];
-    if (tvResult.status === "rejected") {
-      console.error(
-        "[TextVerified] ✗ Error:",
-        tvResult.reason instanceof Error
-          ? tvResult.reason.message
-          : tvResult.reason,
-      );
-    }
+      const providers = [
+        {
+          id: PROVIDERS.LION.id,
+          name: "sms-man",
+          displayName: PROVIDERS.LION.displayName,
+          logo: PROVIDERS.LION.logo,
+          cover: "All Countries",
+        },
+        {
+          id: PROVIDERS.PANDA.id,
+          name: "textverified",
+          displayName: PROVIDERS.PANDA.displayName,
+          logo: PROVIDERS.PANDA.logo,
+          cover: "United States",
+        },
+      ];
 
-    if (smsManServices.length === 0 && tvServices.length === 0) {
-      console.error(
-        "[Build] No services from any provider — skipping cache write",
-      );
-      return;
-    }
+      const servicesMap = new Map<string, any>();
 
-    // Refuse to cache a partial result that has no Lion (SMS-Man) services.
-    // A previous poll may have cached a TextVerified-only snapshot when SMS-Man
-    // timed out; we must not let that sit for 30 minutes.
-    if (smsManServices.length === 0) {
-      console.warn(
-        "[Build] SMS-Man returned 0 services — skipping cache write to avoid serving lion-less snapshot",
-      );
-      return;
-    }
+      console.log("[Build] Fetching provider services in parallel...");
+      const [smsManResult, tvResult] = await Promise.allSettled([
+        withTimeout(
+          (async () => {
+            console.log("[SMSMan] Fetching services...");
+            const smsManService = new SMSManService();
+            const services = await smsManService.getAvailableServices();
+            console.log(
+              `[SMSMan] ✓ Fetched ${services.length} services (RUB pricing)`,
+            );
+            return services;
+          })(),
+          "SMS-Man service fetch",
+          60 * 1000, // 60s — sub-caches are warmed at startup; cold-start tolerance
+        ),
+        withTimeout(
+          (async () => {
+            console.log("[TextVerified] Fetching service list...");
+            const textVerifiedService = new TextVerifiedService();
+            const basicServices =
+              await textVerifiedService.getAvailableServices();
+            const services = basicServices.map((service) => ({
+              ...service,
+              price: TV_DEFAULT_BASE_PRICE_USD,
+            }));
+            console.log(
+              `[TextVerified] ✓ Fetched ${services.length} services (baseline pricing)`,
+            );
+            return services;
+          })(),
+          "TextVerified service fetch",
+          25 * 1000,
+        ),
+      ]);
 
-    console.log(
-      `[Build] Total raw: SMS-Man ${smsManServices.length} + TextVerified ${tvServices.length}`,
-    );
-
-    const servicesToPrice: Array<{
-      basePrice: number;
-      serviceCode: string;
-      country: string;
-    }> = [];
-    const serviceMetadata: Array<{
-      key: string;
-      providerData: any;
-      providerId: string;
-      providerName: string;
-    }> = [];
-
-    smsManServices.forEach((service: any, idx: number) => {
-      const baseUSD = Number((service.price / rubToUsdRate).toFixed(4));
-      if (idx === 0) {
-        console.log(
-          `[SMSMan] Sample base: ${service.price} RUB → $${baseUSD} USD`,
+      const smsManServices =
+        smsManResult.status === "fulfilled" ? smsManResult.value : [];
+      if (smsManResult.status === "rejected") {
+        console.error(
+          "[SMSMan] ✗ Error:",
+          smsManResult.reason instanceof Error
+            ? smsManResult.reason.message
+            : smsManResult.reason,
         );
       }
-      servicesToPrice.push({
-        basePrice: baseUSD,
-        serviceCode: service.code,
-        country: service.country,
-      });
-      serviceMetadata.push({
-        key: `${service.code}-${service.country}`,
-        providerData: service,
-        providerId: PROVIDERS.LION.id,
-        providerName: "sms-man",
-      });
-    });
 
-    tvServices.forEach((service: any, idx: number) => {
-      const baseUSD = service.price || 0;
-      if (idx === 0) {
-        console.log(`[TextVerified] Sample base: $${baseUSD} USD`);
+      const tvServices = tvResult.status === "fulfilled" ? tvResult.value : [];
+      if (tvResult.status === "rejected") {
+        console.error(
+          "[TextVerified] ✗ Error:",
+          tvResult.reason instanceof Error
+            ? tvResult.reason.message
+            : tvResult.reason,
+        );
       }
-      servicesToPrice.push({
-        basePrice: baseUSD,
-        serviceCode: service.serviceName || service.code,
-        country: "US",
-      });
-      serviceMetadata.push({
-        key: `${service.serviceName || service.code}-US`,
-        providerData: {
-          ...service,
-          code: service.serviceName || service.code,
-          country: "US",
-          name: service.serviceName || service.name,
-        },
-        providerId: PROVIDERS.PANDA.id,
-        providerName: "textverified",
-      });
-    });
 
-    console.log("[Build] Applying admin pricing rules...");
-    const pricingResults =
-      await PricingService.calculatePrices(servicesToPrice);
+      if (smsManServices.length === 0 && tvServices.length === 0) {
+        console.error(
+          "[Build] No services from any provider — skipping cache write",
+        );
+        return null;
+      }
 
-    if (pricingResults.length > 0) {
-      const first = pricingResults[0];
       console.log(
-        `[Build] Sample pricing: $${first.basePrice.toFixed(4)} base + $${first.profit.toFixed(4)} profit = $${first.finalPrice.toFixed(4)}`,
-        first.ruleApplied
-          ? `(Rule: ${first.ruleApplied.profitType} ${first.ruleApplied.profitValue})`
-          : "(Default 20%)",
+        `[Build] Total raw: SMS-Man ${smsManServices.length} + TextVerified ${tvServices.length}`,
       );
-    }
 
-    pricingResults.forEach((priceResult, idx) => {
-      const metadata = serviceMetadata[idx];
-      const service = metadata.providerData;
-      const priceUSD = Number(priceResult.finalPrice.toFixed(2));
+      const servicesToPrice: Array<{
+        basePrice: number;
+        serviceCode: string;
+        country: string;
+      }> = [];
+      const serviceMetadata: Array<{
+        key: string;
+        providerData: any;
+        providerId: string;
+        providerName: string;
+      }> = [];
 
-      if (!servicesMap.has(metadata.key)) {
-        servicesMap.set(metadata.key, {
-          code: service.code,
-          name: service.name,
+      smsManServices.forEach((service: any, idx: number) => {
+        const baseUSD = Number((service.price / rubToUsdRate).toFixed(4));
+        if (idx === 0) {
+          console.log(
+            `[SMSMan] Sample base: ${service.price} RUB → $${baseUSD} USD`,
+          );
+        }
+        servicesToPrice.push({
+          basePrice: baseUSD,
+          serviceCode: service.code,
           country: service.country,
-          price: priceUSD,
-          prices: { [metadata.providerId]: priceUSD },
-          currency: "USD",
-          providerId: metadata.providerName,
-          capability: service.capability || "sms",
-          ui: {
-            logo: "📱",
-            color: "bg-gray-200",
-            displayName: service.name,
+        });
+        serviceMetadata.push({
+          key: `${service.code}-${service.country}`,
+          providerData: service,
+          providerId: PROVIDERS.LION.id,
+          providerName: "sms-man",
+        });
+      });
+
+      tvServices.forEach((service: any, idx: number) => {
+        const baseUSD = service.price || 0;
+        if (idx === 0) {
+          console.log(`[TextVerified] Sample base: $${baseUSD} USD`);
+        }
+        servicesToPrice.push({
+          basePrice: baseUSD,
+          serviceCode: service.serviceName || service.code,
+          country: "US",
+        });
+        serviceMetadata.push({
+          key: `${service.serviceName || service.code}-US`,
+          providerData: {
+            ...service,
+            code: service.serviceName || service.code,
+            country: "US",
+            name: service.serviceName || service.name,
           },
-          providers: [
-            {
+          providerId: PROVIDERS.PANDA.id,
+          providerName: "textverified",
+        });
+      });
+
+      console.log("[Build] Applying admin pricing rules...");
+      const pricingResults =
+        await PricingService.calculatePrices(servicesToPrice);
+
+      if (pricingResults.length > 0) {
+        const first = pricingResults[0];
+        console.log(
+          `[Build] Sample pricing: $${first.basePrice.toFixed(4)} base + $${first.profit.toFixed(4)} profit = $${first.finalPrice.toFixed(4)}`,
+          first.ruleApplied
+            ? `(Rule: ${first.ruleApplied.profitType} ${first.ruleApplied.profitValue})`
+            : "(Default 20%)",
+        );
+      }
+
+      pricingResults.forEach((priceResult, idx) => {
+        const metadata = serviceMetadata[idx];
+        const service = metadata.providerData;
+        const priceUSD = Number(priceResult.finalPrice.toFixed(2));
+
+        if (!servicesMap.has(metadata.key)) {
+          servicesMap.set(metadata.key, {
+            code: service.code,
+            name: service.name,
+            country: service.country,
+            price: priceUSD,
+            prices: { [metadata.providerId]: priceUSD },
+            currency: "USD",
+            providerId: metadata.providerName,
+            capability: service.capability || "sms",
+            ui: {
+              logo: "📱",
+              color: "bg-gray-200",
+              displayName: service.name,
+            },
+            providers: [
+              {
+                id: metadata.providerId,
+                name: metadata.providerName,
+                displayName:
+                  metadata.providerName === "sms-man"
+                    ? PROVIDERS.LION.displayName
+                    : PROVIDERS.PANDA.displayName,
+              },
+            ],
+          });
+        } else {
+          const existing = servicesMap.get(metadata.key);
+          existing.prices = existing.prices || {};
+          existing.prices[metadata.providerId] = priceUSD;
+          existing.capability =
+            service.capability || existing.capability || "sms";
+          if (
+            !existing.providers.find((p: any) => p.id === metadata.providerId)
+          ) {
+            existing.providers.push({
               id: metadata.providerId,
               name: metadata.providerName,
               displayName:
                 metadata.providerName === "sms-man"
                   ? PROVIDERS.LION.displayName
                   : PROVIDERS.PANDA.displayName,
-            },
-          ],
-        });
-      } else {
-        const existing = servicesMap.get(metadata.key);
-        existing.prices = existing.prices || {};
-        existing.prices[metadata.providerId] = priceUSD;
-        existing.capability =
-          service.capability || existing.capability || "sms";
-        if (
-          !existing.providers.find((p: any) => p.id === metadata.providerId)
-        ) {
-          existing.providers.push({
-            id: metadata.providerId,
-            name: metadata.providerName,
-            displayName:
-              metadata.providerName === "sms-man"
-                ? PROVIDERS.LION.displayName
-                : PROVIDERS.PANDA.displayName,
-          });
+            });
+          }
         }
+      });
+
+      const result: AggregatedServicesPayload = {
+        services: Array.from(servicesMap.values()),
+        providers,
+        exchangeRate: {
+          usdToNgn: usdToNgnRate,
+          usdToRub: rubToUsdRate,
+          source: "server",
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      // Refuse to cache a partial result that has no Lion (SMS-Man) services,
+      // but still return it as a one-off fallback response instead of failing 503.
+      if (smsManServices.length === 0) {
+        console.warn(
+          "[Build] SMS-Man returned 0 services — skipping cache write and returning uncached fallback payload",
+        );
+        return result;
       }
-    });
 
-    const result = {
-      services: Array.from(servicesMap.values()),
-      providers,
-      exchangeRate: {
-        usdToNgn: usdToNgnRate,
-        usdToRub: rubToUsdRate,
-        source: "server",
-        timestamp: new Date().toISOString(),
-      },
-    };
+      // Embed cachedAt timestamp so stale-while-revalidate can check cache age
+      const now = Date.now();
+      const resultJson = JSON.stringify({ ...result, cachedAt: now });
+      memoryCache = {
+        data: resultJson,
+        expiresAt: now + SERVICES_CACHE_TTL_SECONDS * 1000,
+        cachedAt: now,
+      };
+      try {
+        await redis.set(
+          SERVICES_CACHE_KEY,
+          resultJson,
+          SERVICES_CACHE_TTL_SECONDS,
+        );
+      } catch {
+        console.warn(
+          "[Build] Redis write failed (OOM?), using memory cache only",
+        );
+      }
 
-    // Embed cachedAt timestamp so stale-while-revalidate can check cache age
-    const now = Date.now();
-    const resultJson = JSON.stringify({ ...result, cachedAt: now });
-    memoryCache = {
-      data: resultJson,
-      expiresAt: now + SERVICES_CACHE_TTL_SECONDS * 1000,
-      cachedAt: now,
-    };
-    try {
-      await redis.set(
-        SERVICES_CACHE_KEY,
-        resultJson,
-        SERVICES_CACHE_TTL_SECONDS,
+      console.log(
+        `[Build] ✓ Cache built: ${result.services.length} unique services`,
+        `(SMS-Man: ${smsManServices.length}, TextVerified: ${tvServices.length})`,
       );
-    } catch {
-      console.warn(
-        "[Build] Redis write failed (OOM?), using memory cache only",
-      );
+      return result;
+    } finally {
+      refreshInProgress = false;
+      refreshPromise = null;
     }
+  })();
 
-    console.log(
-      `[Build] ✓ Cache built: ${result.services.length} unique services`,
-      `(SMS-Man: ${smsManServices.length}, TextVerified: ${tvServices.length})`,
-    );
-  } finally {
-    refreshInProgress = false;
-  }
+  return refreshPromise;
 }
 
 export async function GET() {
@@ -361,7 +386,7 @@ export async function GET() {
           /* ignore */
         }
         memoryCache = null;
-        await buildAndCacheServices();
+        const rebuilt = await buildAndCacheServices();
         // Use `as` cast to escape TypeScript's control-flow narrowing of the module-level variable
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const freshCacheData = memoryCache as any as {
@@ -374,6 +399,9 @@ export async function GET() {
             freshCacheData.data,
           ) as Record<string, unknown> & { cachedAt?: number };
           return json({ ok: true, data: rest });
+        }
+        if (rebuilt) {
+          return json({ ok: true, data: rebuilt });
         }
         return error(
           "No services available from providers. Please check API keys and try again.",
@@ -413,10 +441,18 @@ export async function GET() {
 
     // ── Cache miss: build synchronously then serve ────────────────────────────────────
     console.log("[Cache] Miss — building synchronously...");
-    await buildAndCacheServices();
+    const built = await buildAndCacheServices();
 
     if (memoryCache) {
       return await serveCache(memoryCache.data, "fresh build");
+    }
+
+    if (built) {
+      console.log(
+        "[Cache] Serving uncached fallback payload (cache write skipped)",
+      );
+      console.log("╚════════════════════════════════════════════════╝\n");
+      return json({ ok: true, data: built });
     }
 
     // Both providers returned empty sets
