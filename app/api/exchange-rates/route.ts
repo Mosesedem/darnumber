@@ -17,15 +17,24 @@ export async function GET(_req: NextRequest) {
       ExchangeRateService.getUsdToRubRate(),
     ]);
 
-    console.log(`[GET /api/exchange-rates] Rates: USD/NGN=${usdToNgn}, USD/RUB=${usdToRub}`);
+    console.log(
+      `[GET /api/exchange-rates] Rates: USD/NGN=${usdToNgn}, USD/RUB=${usdToRub}`,
+    );
 
     return json({
       ok: true,
+      // data: {
+      //   usdToNgn,
+      //   usdToRub,
+      //   rubToUsd: 1 / usdToRub,
+      //   timestamp: new Date().toISOString(),
+      // },
       data: {
-        usdToNgn,
-        usdToRub,
-        rubToUsd: 1 / usdToRub,
+        usdToNgn: 1600,
+        usdToRub: 100,
+        rubToUsd: 0.01,
         timestamp: new Date().toISOString(),
+        // fallback: true,
       },
     });
   } catch (e) {

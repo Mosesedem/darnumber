@@ -178,13 +178,26 @@ export default function NewOrderPage() {
     try {
       console.log("[NewOrderPage] ========== FETCHING DATA ==========");
 
+      const fetchServicesWithRetry = async () => {
+        try {
+          return await api.getAvailableServices();
+        } catch (firstError) {
+          console.warn(
+            "[NewOrderPage] Services API first attempt failed, retrying once...",
+            firstError,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 700));
+          return await api.getAvailableServices();
+        }
+      };
+
       // Fetch services and balance independently so one failure doesn't block the other
       let servicesRes: any = null;
       let balanceRes: any = null;
       let servicesError: any = null;
 
       const [sResult, bResult] = await Promise.allSettled([
-        api.getAvailableServices(),
+        fetchServicesWithRetry(),
         api.getBalance(),
       ]);
 
@@ -192,7 +205,7 @@ export default function NewOrderPage() {
         servicesRes = sResult.value;
       } else {
         servicesError = sResult.reason;
-        console.error("[NewOrderPage] Services API failed:", {
+        console.warn("[NewOrderPage] Services API failed:", {
           message: servicesError?.message || String(servicesError),
           status: servicesError?.response?.status,
           data: servicesError?.response?.data,
@@ -203,7 +216,7 @@ export default function NewOrderPage() {
         balanceRes = bResult.value;
         setBalance(balanceRes.data.balance);
       } else {
-        console.error(
+        console.warn(
           "[NewOrderPage] Balance API failed:",
           bResult.reason?.message,
         );
