@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/lib/auth-context";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
-
+import DeploymentPaused from "@/components/vercel";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -35,6 +35,7 @@ export default function RootLayout({
       >
         <AuthProvider>
           {children}
+          {/* <DeploymentPaused /> */}
           <Toaster />
         </AuthProvider>
       </body>
