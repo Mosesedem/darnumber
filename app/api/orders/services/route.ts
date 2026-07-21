@@ -5,13 +5,10 @@ import { SMSManService } from "@/lib/server/services/order.service";
 import { TextVerifiedService } from "@/lib/server/services/textverified.service";
 import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service";
 import { PricingService } from "@/lib/server/services/pricing.service";
-import { getRedisService } from "@/lib/server/services/redis.service";
 
 export const runtime = "nodejs";
 
-const redis = getRedisService();
-const SERVICES_CACHE_KEY = "orders:services:aggregated:v2";
-const SERVICES_CACHE_TTL_SECONDS = 90 * 60; // 90 min — amortises the expensive external fetches + processing (tune based on price volatility)
+const SERVICES_CACHE_TTL_SECONDS = 90 * 60; // 90 min
 const PROVIDER_FETCH_TIMEOUT_MS = 25000;
 
 // TextVerified baseline USD used during the aggregated build.
@@ -104,24 +101,18 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
 
       const servicesMap = new Map<string, any>();
 
-      console.log("[Build] Fetching provider services in parallel (with Redis sub-caching)...");
+      // Provider service blobs are too large for Redis (100MB+); fetch directly
+      // and rely on the in-memory cache (memoryCache) for subsequent requests.
+      console.log("[Build] Fetching provider services in parallel...");
       const [smsManResult, tvResult] = await Promise.allSettled([
         withTimeout(
           (async () => {
-            // Check sub-cache first to avoid expensive external calls on every rebuild
-            const cached = await redis.getProviderServices("sms-man");
-            if (cached && Array.isArray(cached) && cached.length > 0) {
-              console.log(`[SMSMan] ✓ Using Redis sub-cache (${cached.length} services)`);
-              return cached;
-            }
             console.log("[SMSMan] Fetching services from provider...");
             const smsManService = new SMSManService();
             const services = await smsManService.getAvailableServices();
             console.log(
               `[SMSMan] ✓ Fetched ${services.length} services (RUB pricing)`,
             );
-            // Cache raw for 2h to amortize slow provider calls
-            await redis.setProviderServices("sms-man", services, 7200);
             return services;
           })(),
           "SMS-Man service fetch",
@@ -129,11 +120,6 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
         ),
         withTimeout(
           (async () => {
-            const cached = await redis.getProviderServices("textverified");
-            if (cached && Array.isArray(cached) && cached.length > 0) {
-              console.log(`[TextVerified] ✓ Using Redis sub-cache (${cached.length} services)`);
-              return cached;
-            }
             console.log("[TextVerified] Fetching service list from provider...");
             const textVerifiedService = new TextVerifiedService();
             const basicServices =
@@ -145,7 +131,6 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
             console.log(
               `[TextVerified] ✓ Fetched ${services.length} services (baseline pricing)`,
             );
-            await redis.setProviderServices("textverified", services, 7200);
             return services;
           })(),
           "TextVerified service fetch",
@@ -334,17 +319,8 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
         expiresAt: now + SERVICES_CACHE_TTL_SECONDS * 1000,
         cachedAt: now,
       };
-      try {
-        await redis.set(
-          SERVICES_CACHE_KEY,
-          resultJson,
-          SERVICES_CACHE_TTL_SECONDS,
-        );
-      } catch {
-        console.warn(
-          "[Build] Redis write failed (OOM?), using memory cache only",
-        );
-      }
+      // The aggregated payload is too large for Redis (100k+ services).
+      // In-memory cache above is the primary cache; Redis is skipped intentionally.
 
       console.log(
         `[Build] ✓ Cache built: ${result.services.length} unique services`,
@@ -403,12 +379,7 @@ export async function GET() {
         console.warn(
           `[Cache] ${source} contains no Lion services — discarding and rebuilding synchronously`,
         );
-        // Delete poisoned cache entries so they are not served again
-        try {
-          await redis.del(SERVICES_CACHE_KEY);
-        } catch {
-          /* ignore */
-        }
+        // Delete poisoned memory cache so it is not served again
         memoryCache = null;
         const rebuilt = await buildAndCacheServices();
         // Use `as` cast to escape TypeScript's control-flow narrowing of the module-level variable
@@ -460,13 +431,7 @@ export async function GET() {
       });
     };
 
-    try {
-      const cached = await redis.get(SERVICES_CACHE_KEY);
-      if (cached) return await serveCache(cached, "Redis cache");
-    } catch {
-      console.warn("[Cache] Redis read failed, checking memory cache");
-    }
-
+    // Services payload is too large for Redis — use in-memory cache only.
     if (memoryCache && Date.now() < memoryCache.expiresAt) {
       return await serveCache(memoryCache.data, "memory cache");
     }
