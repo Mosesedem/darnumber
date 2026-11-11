@@ -43,15 +43,6 @@ export class PaymentService {
         .toString(36)
         .slice(2, 8)}`;
       const initUrl = `https://api-checkout.etegram.com/api/transaction/initialize/${projectId}`;
-      logger.info(
-        "[Payments][Etegram][Init]",
-        "ref=",
-        reference,
-        "initUrl=",
-        initUrl,
-        "email=",
-        user.email,
-      );
       const res = await fetch(initUrl, {
         method: "POST",
         headers: {
@@ -98,13 +89,6 @@ export class PaymentService {
           paymentDetails: { accessCode, authorizationUrl: authUrl },
         },
       });
-      logger.info(
-        "[Payments][Etegram][Txn] Created pending deposit",
-        "ref=",
-        ref,
-        "accessCode=",
-        accessCode,
-      );
       return { authorizationUrl: authUrl, reference: ref };
     }
 
@@ -118,15 +102,6 @@ export class PaymentService {
       const reference = `PST-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      logger.info(
-        "[Payments][Paystack][Init]",
-        "ref=",
-        reference,
-        "email=",
-        user.email,
-        "amount(kobo)=",
-        Math.round(Number(amount) * 100),
-      );
 
       const res = await fetch(
         "https://api.paystack.co/transaction/initialize",
@@ -199,15 +174,6 @@ export class PaymentService {
       const reference = `FLW-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      logger.info(
-        "[Payments][Flutterwave][Init]",
-        "ref=",
-        reference,
-        "email=",
-        user.email,
-        "amount=",
-        Math.round(Number(amount)),
-      );
 
       const body = {
         tx_ref: reference,
@@ -303,7 +269,6 @@ export class PaymentService {
           "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.paystack.co/transaction/verify/${reference}`;
-      logger.info("[Payments][Verify][Paystack] verifyUrl=", verifyUrl);
       const res = await fetch(verifyUrl, {
         method: "GET",
         headers: {
@@ -317,9 +282,13 @@ export class PaymentService {
         try {
           const errJson = JSON.parse(errText);
           errorMsg = errJson?.message || errorMsg;
-          logger.error("[Payments][Verify][Paystack] API Error:", errJson);
+          logger.error("[Payments][Verify][Paystack] API error", {
+            status: res.status,
+          });
         } catch {
-          logger.error("[Payments][Verify][Paystack] Error:", errText);
+          logger.error("[Payments][Verify][Paystack] API error", {
+            status: res.status,
+          });
         }
         throw new Error(errorMsg);
       }
@@ -394,7 +363,6 @@ export class PaymentService {
           "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${reference}`;
-      logger.info("[Payments][Verify][Flutterwave] verifyUrl=", verifyUrl);
       const res = await fetch(verifyUrl, {
         method: "GET",
         headers: {
@@ -1048,7 +1016,6 @@ export class PaymentService {
             )
           : undefined;
         if (match?.customer_code) customerCode = match.customer_code;
-        logger.info("[DVA][Service] matchedCustomer=", match?.customer_code);
       }
     } catch {}
 
@@ -1074,7 +1041,6 @@ export class PaymentService {
       }
       const cust = (await custRes.json()) as any;
       customerCode = cust?.data?.customer_code;
-      logger.info("[DVA][Service] createdCustomerCode=", customerCode);
       if (!customerCode) {
         throw new Error(
           "Failed to create Paystack customer: missing customer_code",
@@ -1108,12 +1074,7 @@ export class PaymentService {
     );
     if (!assignRes.ok) {
       const errText = await assignRes.text().catch(() => "");
-      logger.error(
-        "[DVA][Service][Assign][ERROR] code=",
-        customerCode,
-        "resp=",
-        errText,
-      );
+      logger.error("[DVA][Service] Assign failed", { status: assignRes.status });
       throw new Error(
         `Failed to assign dedicated account${errText ? ": " + errText : ""}`,
       );
@@ -1122,11 +1083,6 @@ export class PaymentService {
     const bankName = assign?.data?.bank?.name;
     const accountNumber = assign?.data?.account_number;
     const accountName = assign?.data?.account_name;
-    logger.info("[DVA][Service] assigned=", {
-      bankName,
-      accountNumber,
-      accountName,
-    });
     // Paystack may respond with an in-progress status; surface as pending
     if (!bankName || !accountNumber || !accountName) {
       const msg = (assign?.message || "").toString().toLowerCase();

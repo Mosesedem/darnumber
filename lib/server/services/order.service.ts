@@ -75,101 +75,52 @@ interface CreateOrderInput {
 
 export class OrderService {
   async createOrder(input: CreateOrderInput) {
-    logger.info("[OrderService.createOrder] ========== START ==========");
-    logger.info("[OrderService.createOrder] Input:", JSON.stringify(input));
     const { userId, serviceCode, country, clientPriceNgn, preferredProvider } = input;
 
-    // 1. Validate User
-    logger.info("[OrderService.createOrder] Step 1: Validating user...");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { balance: true, currency: true },
     });
     if (!user) {
-      logger.error("[OrderService.createOrder] User not found:", userId);
+      logger.error("[Order] User not found");
       throw new Error("User not found");
     }
-    logger.info(
-      "[OrderService.createOrder] User found. Balance:",
-      user.balance.toString(),
-      user.currency,
-    );
 
-    // 2. Validate Provider
-    logger.info("[OrderService.createOrder] Step 2: Resolving providers for:", {
-      serviceCode,
-      country,
-      preferredProvider,
-    });
     const providers = await this.getAvailableProviders(
       serviceCode,
       country,
       preferredProvider,
     );
-    logger.info(
-      "[OrderService.createOrder] Available providers:",
-      providers.map((p) => `${p.name} (id: ${p.id})`),
-    );
     if (!providers.length) {
-      logger.error("[OrderService.createOrder] No providers available for:", {
+      logger.error("[Order] No provider for selection", {
         serviceCode,
         country,
-        preferredProvider,
       });
       throw new Error("No providers available for this service and country.");
     }
     const selectedProvider = providers[0];
-    logger.info(
-      "[OrderService.createOrder] Selected provider:",
-      selectedProvider,
-    );
 
-    // 3. Calculate authoritative server-side price
-    logger.info("[OrderService.createOrder] Step 3: Calculating server-side price...");
     const serverPriceNgn = await this.calculateAuthoritativePrice(
       serviceCode,
       country,
       selectedProvider.name,
     );
-    logger.info("[OrderService.createOrder] Server price (NGN):", serverPriceNgn);
-
     // Guard: if the client quoted a price that is more than 10% below the server
     // price, the frontend was working off a stale cache. Reject so the user sees
     // fresh pricing before being charged.
     if (clientPriceNgn !== undefined && clientPriceNgn < serverPriceNgn * 0.90) {
-      logger.warn("[OrderService.createOrder] Client price too low vs server price:", {
-        clientPriceNgn,
-        serverPriceNgn,
-        diff: `${(((serverPriceNgn - clientPriceNgn) / serverPriceNgn) * 100).toFixed(1)}%`,
-      });
+      logger.warn("[Order] Quoted price is stale", { serviceCode, country });
       throw new Error(
         `Price has changed. Expected ₦${serverPriceNgn.toLocaleString()}, got ₦${clientPriceNgn.toLocaleString()}. Please refresh and try again.`,
       );
     }
 
-    // 4. Validate Balance against server price
-    logger.info(
-      "[OrderService.createOrder] Step 4: Validating balance...",
-    );
     const finalPrice = new Prisma.Decimal(serverPriceNgn);
-    logger.info(
-      "[OrderService.createOrder] Price (server):", finalPrice.toString(),
-      "Balance:", user.balance.toString(),
-    );
     if (user.balance.lt(finalPrice)) {
-      logger.error("[OrderService.createOrder] Insufficient balance:", {
-        balance: user.balance.toString(),
-        required: finalPrice.toString(),
-        deficit: finalPrice.sub(user.balance).toString(),
-      });
+      logger.warn("[Order] Insufficient balance", { serviceCode, country });
       throw new Error("Insufficient balance");
     }
-    logger.info("[OrderService.createOrder] Balance check passed.");
 
-    // 5. Create Order and Transaction in a single DB operation
-    logger.info(
-      "[OrderService.createOrder] Step 5: Creating order record and deducting balance...",
-    );
     const order = await prisma.$transaction(
       async (tx) => {
         // Debit user's balance
@@ -217,40 +168,15 @@ export class OrderService {
         timeout: 15000, // Max transaction execution time (15s)
       },
     );
-    logger.info("[OrderService.createOrder] Order record created:", {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-    });
-
-    // 6. Request number with provider failover (outside the main DB transaction)
-    logger.info(
-      "[OrderService.createOrder] Step 6: Requesting number from providers...",
-    );
     const providerErrors: Array<{ provider: string; message: string }> = [];
 
     for (const provider of providers) {
       try {
-        logger.info(
-          `[OrderService.createOrder] Trying provider: ${provider.name} (id: ${provider.id})`,
-        );
         const providerService = this.getProviderService(provider.name);
-        logger.info(
-          `[OrderService.createOrder] Requesting number from ${provider.name} for service=${serviceCode} country=${country}...`,
-        );
-
         const providerOrder = await providerService.requestNumber(
           serviceCode,
           country,
           order.id,
-        );
-
-        logger.info(
-          `[OrderService.createOrder] Provider ${provider.name} returned:`,
-          {
-            id: providerOrder.id,
-            phoneNumber: providerOrder.phoneNumber,
-            cost: providerOrder.cost,
-          },
         );
 
         const updatedOrder = await prisma.order.update({
@@ -266,14 +192,6 @@ export class OrderService {
           },
         });
 
-        logger.info("[OrderService.createOrder] ========== SUCCESS ==========");
-        logger.info("[OrderService.createOrder] Order updated:", {
-          orderId: updatedOrder.id,
-          phoneNumber: updatedOrder.phoneNumber,
-          status: updatedOrder.status,
-          expiresAt: updatedOrder.expiresAt,
-        });
-
         return {
           orderId: updatedOrder.id,
           orderNumber: updatedOrder.orderNumber,
@@ -284,19 +202,19 @@ export class OrderService {
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         providerErrors.push({ provider: provider.name, message });
-        logger.warn(
-          `[OrderService.createOrder] Provider ${provider.name} failed for order ${order.id}: ${message}`,
-        );
-        if (e instanceof Error && e.stack) {
-          logger.warn(`[OrderService.createOrder] Stack trace:`, e.stack);
-        }
+        logger.warn("[Order] Provider declined", {
+          provider: provider.name,
+          serviceCode,
+          country,
+        });
       }
     }
 
-    logger.error(
-      `[OrderService] All providers failed for order ${order.id}. Refunding...`,
-      providerErrors,
-    );
+    logger.error("[Order] All providers failed", {
+      orderId: order.id,
+      serviceCode,
+      country,
+    });
     await this.refundOrder(order.id, "PROVIDER_FAILURE");
 
     const allUnavailable =
@@ -417,9 +335,6 @@ export class OrderService {
       const smsMan = new SMSManService();
       const priceRub = await smsMan.getPriceForService(serviceCode, country);
       baseUsd = Number((priceRub / rubToUsdRate).toFixed(6));
-      logger.info(
-        `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
-      );
     } else {
       // TextVerified prices the service's real capability. Short codes such as
       // "wa" resolve to the provider's service name before the quote.
@@ -428,9 +343,6 @@ export class OrderService {
       baseUsd = quote.price;
       pricingCode = quote.serviceName;
       pricingCountry = "US";
-      logger.info(
-        `[panda][Price] ${serviceCode} → ${quote.serviceName} capability=${quote.capability}: $${baseUsd}`,
-      );
     }
 
     // Apply admin pricing rules: final = providerBase + markup
@@ -446,21 +358,6 @@ export class OrderService {
     // Convert to NGN and round up to nearest whole unit
     const finalNgn = Math.ceil(finalUsd * usdToNgnRate);
 
-    const ruleNote = pricing.ruleApplied
-      ? ` (Rule: ${pricing.ruleApplied.profitType} ${pricing.ruleApplied.profitValue}${
-          pricing.ruleApplied.profitType === "FIXED"
-            ? ` ${pricing.ruleApplied.profitCurrency}`
-            : "%"
-        })`
-      : " (Default 20%)";
-
-    logger.info(
-      `[OrderService.calculateAuthoritativePrice] $${baseUsd.toFixed(4)} base` +
-        ` + $${pricing.profit.toFixed(4)} markup = $${finalUsd.toFixed(4)} USD` +
-        ` → ₦${finalNgn} NGN` +
-        ruleNote,
-    );
-
     return finalNgn;
   }
 
@@ -469,12 +366,6 @@ export class OrderService {
     country: string,
     preferred?: string,
   ) {
-    logger.info("[OrderService.getAvailableProviders] Input:", {
-      serviceCode,
-      country,
-      preferred,
-    });
-
     // Normalize preferred provider name to handle various formats
     // Frontend may send "sms-man", "textverified", "lion", "panda", etc.
     const normalizeProvider = (name?: string): string | undefined => {
@@ -496,10 +387,6 @@ export class OrderService {
     };
 
     const normalizedPreferred = normalizeProvider(preferred);
-    logger.info(
-      "[OrderService.getAvailableProviders] Normalized preferred:",
-      normalizedPreferred,
-    );
 
     // Use hardcoded providers instead of DB queries
     const availableProviders: Array<{
@@ -540,12 +427,7 @@ export class OrderService {
     }
 
     // Sort by priority (higher priority first)
-    const sorted = availableProviders.sort((a, b) => b.priority - a.priority);
-    logger.info(
-      "[OrderService.getAvailableProviders] Result:",
-      sorted.map((p) => `${p.name} (priority ${p.priority})`),
-    );
-    return sorted;
+    return availableProviders.sort((a, b) => b.priority - a.priority);
   }
 
   async calculatePricing(
@@ -599,8 +481,6 @@ export class OrderService {
   }
 
   async getOrderStatus(orderId: string) {
-    logger.info("[OrderService] getOrderStatus", { orderId });
-
     const TERMINAL_STATUSES = [
       "COMPLETED",
       "CANCELLED",
@@ -760,7 +640,6 @@ export class OrderService {
     delete (payload as any).providerId;
     // Cache write is fire-and-forget — order status must be readable even if Redis is down
     redis.setOrderStatus(orderId, payload, 300).catch(() => {});
-    logger.info("[OrderService] getOrderStatus payload", payload);
     return payload;
   }
 
@@ -779,10 +658,6 @@ export class OrderService {
     try {
       if (this.isTextVerifiedProvider(providerId)) {
         const tv = new TextVerifiedService();
-        logger.info("[tryFetchAndUpdateSmsCode] Fetching TextVerified SMS", {
-          orderId,
-          externalId,
-        });
         const messages = await tv.getSmsForVerification(externalId);
         for (const msg of messages) {
           const parsed = msg.parsedCode || "";
@@ -800,40 +675,14 @@ export class OrderService {
             break;
           }
         }
-        if (code) {
-          logger.info("[tryFetchAndUpdateSmsCode] Found TextVerified code", {
-            orderId,
-          });
-        } else {
-          logger.info("[tryFetchAndUpdateSmsCode] No TextVerified code yet", {
-            orderId,
-            messageCount: messages.length,
-          });
-        }
       } else if (this.isSmsManProvider(providerId)) {
         // SMSMan: poll for code
         const apiKey = process.env.SMSMAN_API_KEY;
-        if (!apiKey) {
-          logger.info("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
-          return;
-        }
-        // externalId is request_id
+        if (!apiKey) return;
         const url = `https://api.sms-man.com/control/get-sms?token=${apiKey}&request_id=${externalId}`;
-        logger.info(
-          "[tryFetchAndUpdateSmsCode] Fetching SMS-Man:",
-          url.replace(apiKey, "***"),
-        );
         const res = await fetch(url);
-        logger.info(
-          "[tryFetchAndUpdateSmsCode] SMS-Man fetch status:",
-          res.status,
-        );
         if (res.ok) {
           const data = await res.json();
-          logger.info(
-            "[tryFetchAndUpdateSmsCode] SMS-Man response:",
-            JSON.stringify(data, null, 2),
-          );
           let foundSms = null;
           if (
             data.sms_code &&
@@ -864,21 +713,9 @@ export class OrderService {
             code = (foundSms.match(/\d{3,}/) || [])[0];
             message = foundSms;
             status = "COMPLETED";
-            logger.info(
-              "[tryFetchAndUpdateSmsCode] Found code in SMS-Man:",
-              code,
-            );
-          } else {
-            logger.info(
-              "[tryFetchAndUpdateSmsCode] No code found in SMS-Man response",
-            );
           }
         } else {
-          logger.info(
-            "[tryFetchAndUpdateSmsCode] SMS-Man fetch failed:",
-            res.status,
-            await res.text(),
-          );
+          await res.text().catch(() => {});
         }
       }
       if (code && status) {
@@ -1153,8 +990,6 @@ export class SMSManService {
   private apiKey = process.env.SMSMAN_API_KEY || "";
 
   async getAvailableServices() {
-    logger.info("[SMSManService] Starting optimized service fetch...");
-
     try {
       if (!this.apiKey) {
         throw new Error("SMS-Man API key not configured");
@@ -1180,10 +1015,6 @@ export class SMSManService {
       // Convert API objects to arrays - SMS-Man returns {id: {data}} format
       const countries = Object.values(countriesData);
       const applications = Object.values(applicationsData);
-
-      logger.info(
-        `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`,
-      );
 
       // Keys must be strings. `/applications` returns numeric ids, while
       // `get-prices` object keys are strings, and Map lookup is strict.
@@ -1230,9 +1061,6 @@ export class SMSManService {
         });
       }
 
-      logger.info(
-        `[SMSManService] Successfully processed ${services.length} services`,
-      );
       return services;
     } catch (err) {
       logger.error("[SMSManService] Error:", err);
@@ -1332,9 +1160,7 @@ export class SMSManService {
     if (!contentType || !contentType.includes("application/json")) {
       // If the request is already closed/expired, SMS-Man may return HTML error page
       if (!res.ok) {
-        logger.warn(
-          `[SMSManService] Cancel request ${externalId} failed with status ${res.status} (likely already closed)`,
-        );
+        logger.warn("[SMSMan] Cancel failed", { status: res.status });
         return; // Don't throw - order likely already expired on provider side
       }
     }
@@ -1346,14 +1172,13 @@ export class SMSManService {
         data.error_code === "wrong_status" ||
         data.error_msg?.includes("already closed")
       ) {
-        logger.warn(
-          `[SMSManService] Request ${externalId} already closed: ${data.error_msg}`,
-        );
+        logger.warn("[SMSMan] Cancel already closed", {
+          status: res.status,
+        });
         return; // Don't throw - this is expected for expired orders
       }
       throw new Error(data.error_msg || "Failed to cancel SMS-Man request");
     }
-    logger.info(`[SMSManService] Cancelled request ${externalId}`);
   }
 
   async requestNumber(
@@ -1361,50 +1186,20 @@ export class SMSManService {
     country: string,
     orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    logger.info("[SMSManService.requestNumber] ========== START ==========");
-    logger.info("[SMSManService.requestNumber] Input:", {
-      serviceCode,
-      country,
-      orderId,
-    });
-
     if (!this.apiKey) {
-      logger.error("[SMSManService.requestNumber] API key not configured!");
+      logger.error("[SMSMan] API key not configured");
       throw new Error("SMS-Man API key not configured");
     }
 
-    // This needs to be reversed; we get a service code like 'wa' and need the ID
-    logger.info(
-      "[SMSManService.requestNumber] Looking up application ID for service code:",
-      serviceCode,
-    );
     const app = await this.findApplication(serviceCode);
     if (!app) {
-      logger.error(
-        "[SMSManService.requestNumber] Service code not found in applications:",
-        { serviceCode },
-      );
+      logger.error("[SMSMan] Unknown service code", { serviceCode });
       throw new Error(`SMS-Man does not support service code: ${serviceCode}`);
     }
     const applicationId = app.id;
-    logger.info("[SMSManService.requestNumber] Found application:", {
-      code: serviceCode,
-      id: applicationId,
-    });
-
-    logger.info(
-      "[SMSManService.requestNumber] Looking up country ID for:",
-      country,
-    );
     const countryId = await this.getCountryIdFromCode(country);
-    logger.info("[SMSManService.requestNumber] Country ID:", countryId);
 
     const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}&currency=RUB`;
-    logger.info(
-      "[SMSManService.requestNumber] GET",
-      url.replace(this.apiKey, "***"),
-    );
-
     const res = await fetch(url);
     let data: any;
     try {
@@ -1412,13 +1207,13 @@ export class SMSManService {
     } catch {
       throw new Error(`SMS-Man get-number failed (${res.status})`);
     }
-    logger.info(
-      "[SMSManService.requestNumber] Response:",
-      JSON.stringify(data),
-    );
 
     if (!res.ok || data.success === false || data.error_code) {
-      logger.error("[SMSManService.requestNumber] Provider error:", data);
+      logger.warn("[SMSMan] get-number rejected", {
+        serviceCode,
+        country,
+        status: res.status,
+      });
       const code = String(data.error_code || "");
       const rawMsg = data.error_msg || data.error || "Failed to get number";
       const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
@@ -1432,14 +1227,6 @@ export class SMSManService {
     if (!data.request_id || !data.number) {
       throw new Error("SMS-Man did not return a phone number");
     }
-
-    logger.info("[SMSManService.requestNumber] ========== SUCCESS ==========");
-    logger.info("[SMSManService.requestNumber] Got number:", {
-      request_id: data.request_id,
-      number: data.number,
-      country_id: data.country_id,
-      application_id: data.application_id,
-    });
 
     return {
       id: data.request_id.toString(),
@@ -1520,7 +1307,6 @@ export class SMSManService {
 
     if (!rows) {
       if (!this.apiKey) throw new Error("SMS-Man API key not configured");
-      logger.info("[SMSManService] Fetching countries from API...");
       const res = await fetch(`${this.apiUrl}/countries?token=${this.apiKey}`);
       if (!res.ok) {
         throw new Error(`Failed to fetch countries: ${res.status}`);
@@ -1534,7 +1320,6 @@ export class SMSManService {
         }))
         .filter((c) => c.code);
       redis.set(cacheKey, JSON.stringify(rows), 60 * 60 * 24).catch(() => {});
-      logger.info(`[SMSManService] Cached ${rows.length} countries from API`);
     }
 
     const byCode = new Map<string, string>();

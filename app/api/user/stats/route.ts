@@ -30,13 +30,9 @@ export async function GET(req: NextRequest) {
       // Redis unavailable — continue to DB
     }
 
-    logger.info("[Route][User][Stats] Starting fetch for userId:", userId);
-
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Fetch user data
-    logger.info("[Route][User][Stats] Fetching user data...");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -48,10 +44,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!user) return error("User not found", 404);
-    logger.info("[Route][User][Stats] User data fetched successfully");
 
-    // Fetch order statistics
-    logger.info("[Route][User][Stats] Fetching order statistics...");
     const [ordersByStatus, totalOrders, recentOrders] = await Promise.all([
       prisma.order.groupBy({
         by: ["status"],
@@ -75,10 +68,6 @@ export async function GET(req: NextRequest) {
         },
       }),
     ]);
-    logger.info("[Route][User][Stats] Order statistics fetched successfully");
-
-    // Fetch transaction statistics
-    logger.info("[Route][User][Stats] Fetching transaction statistics...");
     const [transactionsByType, totalTransactions, totalSpent, totalDeposits] =
       await Promise.all([
         prisma.transaction.groupBy({
@@ -114,12 +103,6 @@ export async function GET(req: NextRequest) {
           },
         }),
       ]);
-    logger.info(
-      "[Route][User][Stats] Transaction statistics fetched successfully"
-    );
-
-    // Fetch referral statistics
-    logger.info("[Route][User][Stats] Fetching referral statistics...");
     const [referralCount, referralRewards] = await Promise.all([
       prisma.referral.count({ where: { referrerId: userId } }),
       prisma.referral.aggregate({
@@ -129,12 +112,6 @@ export async function GET(req: NextRequest) {
         },
       }),
     ]);
-    logger.info(
-      "[Route][User][Stats] Referral statistics fetched successfully"
-    );
-
-    // Recent activity within the time period
-    logger.info("[Route][User][Stats] Fetching recent activity...");
     const [recentOrdersCount, recentTransactionsCount] = await Promise.all([
       prisma.order.count({
         where: {
@@ -149,10 +126,6 @@ export async function GET(req: NextRequest) {
         },
       }),
     ]);
-    logger.info("[Route][User][Stats] Recent activity fetched successfully");
-
-    // Calculate success rate
-    logger.info("[Route][User][Stats] Building response...");
     const completedOrders =
       ordersByStatus.find((s) => s.status === "COMPLETED")?._count || 0;
     const successRate =
@@ -214,12 +187,6 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    logger.info("[Route][User][Stats] Fetched successfully", {
-      userId,
-      totalOrders,
-      totalTransactions,
-    });
-
     // Cache result
     // Cache write is fire-and-forget
     redis.setJSON(cacheKey, stats, STATS_CACHE_TTL).catch(() => {});
@@ -229,12 +196,7 @@ export async function GET(req: NextRequest) {
       data: stats,
     });
   } catch (e) {
-    logger.error("[Route][User][Stats] Error:", e);
-    logger.error("[Route][User][Stats] Error details:", {
-      message: e instanceof Error ? e.message : String(e),
-      stack: e instanceof Error ? e.stack : undefined,
-      name: e instanceof Error ? e.name : undefined,
-    });
+    logger.error("[Route][User][Stats] Error", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     return error(e instanceof Error ? e.message : "Unexpected error", 500);

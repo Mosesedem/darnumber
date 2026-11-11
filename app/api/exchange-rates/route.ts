@@ -15,16 +15,11 @@ export const revalidate = 300;
  * Used by the frontend to convert USD prices to NGN for display.
  */
 export async function GET(_req: NextRequest) {
-  logger.info("[GET /api/exchange-rates] Fetching current rates...");
   try {
     const [usdToNgn, usdToRub] = await Promise.all([
       ExchangeRateService.getUsdToNgnRate(),
       ExchangeRateService.getUsdToRubRate(),
     ]);
-
-    logger.info(
-      `[GET /api/exchange-rates] Rates: USD/NGN=${usdToNgn}, USD/RUB=${usdToRub}`,
-    );
 
     const data = {
       usdToNgn,

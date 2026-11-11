@@ -21,8 +21,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     // Authenticate user
-    const authResult = await requireAuth();
-    logger.info(`[panda][Pricing] ✓ User ${authResult?.user?.email} authenticated`);
+    await requireAuth();
 
     const body = await req.json();
 
@@ -49,14 +48,6 @@ export async function POST(req: NextRequest) {
       return error("capability must be one of: sms, voice, smsAndVoiceCombo", 400);
     }
 
-    logger.info(`[panda][Pricing] Fetching pricing for:`, {
-      serviceName,
-      areaCode,
-      carrier,
-      numberType,
-      capability
-    });
-
     const textVerifiedService = new TextVerifiedService();
     
     const pricing = await textVerifiedService.getServicePricing({
@@ -66,8 +57,6 @@ export async function POST(req: NextRequest) {
       numberType,
       capability
     });
-
-    logger.info(`[panda][Pricing] ✓ Price for ${pricing.serviceName}: $${pricing.price}`);
 
     return json({
       ok: true,

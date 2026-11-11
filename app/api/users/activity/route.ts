@@ -34,12 +34,6 @@ export async function GET(req: NextRequest) {
       prisma.activityLog.count({ where: { userId: session.user.id } }),
     ]);
 
-    logger.info("[Route][Users][Activity] Fetched successfully", {
-      userId: session.user.id,
-      page,
-      total,
-    });
-
     return json({
       ok: true,
       data: {

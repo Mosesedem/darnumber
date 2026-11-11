@@ -34,11 +34,9 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
 
   // If no resend client (API key not configured), log to console
   if (!resend) {
-    logger.info("\n========== EMAIL (DEV MODE) ==========");
-    logger.info(`To: ${options.to}`);
-    logger.info(`Subject: ${options.subject}`);
-    logger.info(`Body:\n${options.text || options.html}`);
-    logger.info("=======================================\n");
+    logger.warn("[EmailService] Email not sent: Resend is not configured", {
+      subject: options.subject,
+    });
     return true;
   }
 
@@ -56,7 +54,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
       return false;
     }
 
-    logger.info(`[EmailService] Email sent successfully to ${options.to}`);
+    logger.info("[EmailService] Email sent", { subject: options.subject });
     return true;
   } catch (error) {
     logger.error("[EmailService] Failed to send email:", error);

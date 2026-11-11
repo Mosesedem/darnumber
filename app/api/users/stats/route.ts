@@ -184,12 +184,6 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    logger.info("[Route][Users][Stats] Fetched successfully", {
-      userId,
-      totalOrders,
-      totalTransactions,
-    });
-
     return json({
       ok: true,
       data: stats,

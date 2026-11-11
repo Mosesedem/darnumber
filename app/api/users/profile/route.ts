@@ -33,10 +33,6 @@ export async function GET(req: NextRequest) {
 
     if (!user) return error("User not found", 404);
 
-    logger.info("[Route][Users][Profile] Fetched successfully", {
-      userId: session.user.id,
-    });
-
     return json({
       ok: true,
       data: {
@@ -119,11 +115,6 @@ export async function PATCH(req: NextRequest) {
         resourceId: session.user.id,
         metadata: { changes: updateData },
       },
-    });
-
-    logger.info("[Route][Users][Profile] Updated successfully", {
-      userId: session.user.id,
-      changes: Object.keys(updateData),
     });
 
     return json({

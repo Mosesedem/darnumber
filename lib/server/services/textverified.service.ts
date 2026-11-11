@@ -185,14 +185,11 @@ export class TextVerifiedService {
       if (cached?.token && cached.expiresAt > Date.now() + 30_000) {
         this.bearerToken = cached.token;
         this.tokenExpiry = cached.expiresAt;
-        logger.debug("[TextVerified] Using Redis-cached bearer token");
         return this.bearerToken;
       }
     } catch {
       // Redis unavailable — continue to live auth
     }
-
-    logger.info("[TextVerified] Generating new bearer token");
 
     if (!this.apiKey || !this.apiUsername) {
       throw new Error("TextVerified API key or username not configured");
@@ -252,9 +249,6 @@ export class TextVerifiedService {
       )
       .catch(() => {});
 
-    logger.info("[TextVerified] Bearer token generated", {
-      expiresInSeconds: ttlSeconds,
-    });
     return this.bearerToken;
   }
 
@@ -269,11 +263,6 @@ export class TextVerifiedService {
       if (cached) {
         const parsed = JSON.parse(cached) as TextVerifiedServiceData[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          logger.info("[TextVerified] Using cached services", {
-            numberType,
-            reservationType,
-            count: parsed.length,
-          });
           return parsed;
         }
         logger.warn(
@@ -284,11 +273,6 @@ export class TextVerifiedService {
     } catch {
       // Redis unavailable — continue to live API
     }
-
-    logger.info("[TextVerified] Fetching services", {
-      numberType,
-      reservationType,
-    });
 
     try {
       const bearerToken = await this.getBearerToken();
@@ -304,7 +288,6 @@ export class TextVerifiedService {
         const errorText = await response.text();
         logger.error("[TextVerified] Services API error", {
           status: response.status,
-          body: errorText.slice(0, 500),
         });
         throw new Error(
           `TextVerified API error: ${response.status} - ${errorText}`,
@@ -315,33 +298,20 @@ export class TextVerifiedService {
       const rawServices = extractArray(data);
 
       const normalizedServices: TextVerifiedServiceData[] = [];
-      let dropped = 0;
       for (const item of rawServices) {
-        if (!item || typeof item !== "object") {
-          dropped++;
-          continue;
-        }
+        if (!item || typeof item !== "object") continue;
         const row = item as Record<string, unknown>;
         const serviceName = String(
           row.serviceName || row.service_name || "",
         ).trim();
         const capability = normalizeCapability(row.capability);
-        if (!serviceName || !capability) {
-          dropped++;
-          continue;
-        }
+        if (!serviceName || !capability) continue;
         const description =
           typeof row.description === "string" && row.description.trim()
             ? row.description.trim()
             : undefined;
         normalizedServices.push({ serviceName, description, capability });
       }
-
-      logger.info("[TextVerified] Fetched services", {
-        count: normalizedServices.length,
-        dropped,
-        rawCount: rawServices.length,
-      });
 
       if (normalizedServices.length > 0) {
         redis
@@ -385,12 +355,6 @@ export class TextVerifiedService {
       // Redis unavailable — continue to live API
     }
 
-    logger.info("[TextVerified] Fetching pricing", {
-      serviceName: request.serviceName,
-      capability,
-      numberType: request.numberType,
-    });
-
     try {
       const bearerToken = await this.getBearerToken();
       const response = await fetchWithRetry(
@@ -423,7 +387,6 @@ export class TextVerifiedService {
         logger.error("[TextVerified] Pricing API error", {
           status: response.status,
           serviceName: request.serviceName,
-          body: errorText.slice(0, 500),
         });
         throw new Error(
           `TextVerified pricing API error: ${response.status} - ${errorText}`,
@@ -440,11 +403,6 @@ export class TextVerifiedService {
       }
 
       const result = { serviceName, price };
-      logger.info("[TextVerified] Price fetched", {
-        serviceName,
-        price,
-        capability,
-      });
       redis.set(cacheKey, JSON.stringify(result), 30 * 60).catch(() => {});
       return result;
     } catch (error) {
@@ -506,7 +464,6 @@ export class TextVerifiedService {
 
     const url = absoluteUrl(href);
     const method = String(payload.method || "GET").toUpperCase();
-    logger.info("[TextVerified] Following verification href", { url, method });
     const res = await fetchWithRetry(url, {
       method,
       headers: this.authHeaders(bearerToken),
@@ -593,8 +550,6 @@ export class TextVerifiedService {
     country: string,
     _orderId?: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    logger.info("[TextVerified] Requesting number", { serviceName, country });
-
     if (country !== "US") {
       throw new Error("Panda Verify only supports United States numbers.");
     }
@@ -610,11 +565,6 @@ export class TextVerifiedService {
     );
 
     for (const capability of resolved.capabilities) {
-      logger.info("[TextVerified] Creating verification", {
-        serviceName: resolved.serviceName,
-        capability,
-      });
-
       const res = await fetchWithRetry(`${this.apiUrl}/verifications`, {
         method: "POST",
         headers: this.authHeaders(bearerToken),
@@ -652,12 +602,6 @@ export class TextVerifiedService {
       if (!id) {
         throw new Error("Missing verification id in TextVerified response");
       }
-
-      logger.info("[TextVerified] Verification created", {
-        id,
-        hasNumber: Boolean(phoneNumber),
-        cost: Number.isFinite(cost) ? cost : undefined,
-      });
 
       return {
         id,
@@ -698,17 +642,13 @@ export class TextVerifiedService {
           lower.includes("already")
         ) {
           logger.warn("[TextVerified] Cancel already finalized", {
-            id,
             status: res.status,
-            body: text.slice(0, 300),
           });
           return;
         }
       }
       throw new Error(`Failed to cancel verification: ${res.status} - ${text}`);
     }
-
-    logger.info("[TextVerified] Cancelled verification", { id });
   }
 
   async getVerificationDetails(hrefOrId: string): Promise<{
@@ -728,10 +668,8 @@ export class TextVerifiedService {
     });
 
     if (!res.ok) {
-      const text = await res.text();
       logger.warn("[TextVerified] Failed to fetch verification details", {
         status: res.status,
-        body: text.slice(0, 300),
       });
       return null;
     }
@@ -758,11 +696,8 @@ export class TextVerifiedService {
     });
 
     if (!res.ok) {
-      const text = await res.text();
       logger.warn("[TextVerified] Failed to fetch SMS", {
-        id,
         status: res.status,
-        body: text.slice(0, 300),
       });
       return [];
     }
@@ -789,9 +724,6 @@ export class TextVerifiedService {
     try {
       const keys = await redis.keys("textverified:*");
       if (keys.length) await redis.del(...keys);
-      logger.info("[TextVerified] Cleared cached services/pricing/token", {
-        keys: keys.length,
-      });
     } catch (e) {
       logger.warn("[TextVerified] Failed to clear caches", e);
     }

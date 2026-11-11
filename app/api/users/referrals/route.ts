@@ -55,11 +55,6 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    logger.info("[Route][Users][Referrals] Fetched successfully", {
-      userId: session.user.id,
-      totalReferrals: referrals.length,
-    });
-
     return json({
       ok: true,
       data: {

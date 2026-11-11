@@ -179,21 +179,8 @@ export class PricingService {
         usdToNgnRate,
       );
       appliedRule = rule;
-
-      const currencyNote =
-        rule.profitType === "FIXED" ? ` ${rule.profitCurrency}` : "";
-      logger.info(
-        `[PricingService] Rule applied: ${rule.id} (${
-          rule.serviceCode || "*"
-        }/${rule.country || "*"}) - ${rule.profitType} ${rule.profitValue}${
-          rule.profitType === "PERCENTAGE" ? "%" : currencyNote
-        } → +$${profit.toFixed(4)} USD markup`,
-      );
     } else {
       profit = basePrice * (DEFAULT_MARKUP.profitValue / 100);
-      logger.info(
-        `[PricingService] No rule found, using default ${DEFAULT_MARKUP.profitValue}% markup`,
-      );
     }
 
     const finalPrice = basePrice + profit;

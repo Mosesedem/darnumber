@@ -17,8 +17,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   try {
     // Authenticate user
-    const authResult = await requireAuth();
-    logger.info(`[Panda][Services] ✓ User ${authResult?.user?.email} authenticated`);
+    await requireAuth();
 
     // Parse query parameters
     const numberType = (req.nextUrl.searchParams.get("numberType") as 'mobile' | 'voip' | 'landline') || 'mobile';
@@ -26,14 +25,6 @@ export async function GET(req: NextRequest) {
     const withPricing = req.nextUrl.searchParams.get("withPricing") === 'true';
     const areaCode = req.nextUrl.searchParams.get("areaCode") === 'true';
     const carrier = req.nextUrl.searchParams.get("carrier") === 'true';
-
-    logger.info(`[Panda][Services] Fetching with params:`, {
-      numberType,
-      reservationType,
-      withPricing,
-      areaCode,
-      carrier
-    });
 
     const textVerifiedService = new TextVerifiedService();
 
@@ -45,8 +36,6 @@ export async function GET(req: NextRequest) {
       // Fetch services only
       services = await textVerifiedService.getAvailableServices(numberType, reservationType);
     }
-
-    logger.info(`[Panda][Services] ✓ Successfully fetched ${services.length} services`);
 
     return json({
       ok: true,

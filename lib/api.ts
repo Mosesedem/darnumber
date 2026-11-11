@@ -1,8 +1,6 @@
 // ============================================
 // API CLIENT - Axios Configuration
 // ============================================
-import { logger } from "@/lib/logger";
-
 import axios, { AxiosError, AxiosInstance } from "axios";
 
 const API_BASE_URL = "/api";
@@ -148,9 +146,7 @@ class ApiClient {
     provider?: string;
     price: number;
   }) {
-    logger.info("API Client - Creating order:", data);
     const response = await this.client.post("/orders", data);
-    logger.info("API Client - Order response:", response.data);
     return response.data;
   }
 

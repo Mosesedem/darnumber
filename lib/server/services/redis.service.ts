@@ -1,29 +1,34 @@
 import Redis from "ioredis";
 import { logger } from "@/lib/logger";
 
+let sharedClient: Redis | null = null;
+
+function getSharedClient(): Redis {
+  if (sharedClient) return sharedClient;
+
+  const client = new Redis({
+    host: process.env.REDIS_HOST || "localhost",
+    port: parseInt(process.env.REDIS_PORT || "6379"),
+    password: process.env.REDIS_PASSWORD,
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
+    reconnectOnError: (err) => err.message.includes("READONLY"),
+  });
+
+  client.on("error", (error) => {
+    logger.error("[Redis] Connection error", error);
+  });
+
+  sharedClient = client;
+  return client;
+}
+
 export class RedisService {
   private client: Redis;
-  private isConnected = false;
 
   constructor() {
-    this.client = new Redis({
-      host: process.env.REDIS_HOST || "localhost",
-      port: parseInt(process.env.REDIS_PORT || "6379"),
-      password: process.env.REDIS_PASSWORD,
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      retryStrategy: (times) => Math.min(times * 50, 2000),
-      reconnectOnError: (err) => err.message.includes("READONLY"),
-    });
-
-    this.client.on("connect", () => {
-      this.isConnected = true;
-      logger.info("✅ Redis connected");
-    });
-    this.client.on("error", (error) => {
-      this.isConnected = false;
-      logger.error("❌ Redis error:", error);
-    });
+    this.client = getSharedClient();
   }
 
   async get(key: string) {

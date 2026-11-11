@@ -54,22 +54,8 @@ export class ExchangeRateService {
           CACHE_DURATION_HOURS * 60 * 60 * 1000;
 
       if (cacheValid && cached) {
-        logger.info(
-          `[ExchangeRate] ✓ Using cached rate: 1 ${fromCurrency} = ${
-            cached.rate
-          } ${toCurrency} (age: ${Math.round(
-            (now.getTime() - cached.updatedAt.getTime()) / (1000 * 60),
-          )}min)`,
-        );
         return Number(cached.rate);
       }
-
-      // Cache miss or stale - fetch from API
-      logger.info(
-        `[ExchangeRate] Cache ${
-          cached ? "stale" : "miss"
-        } for ${fromCurrency}/${toCurrency}, fetching from MoneyConvert...`,
-      );
       const rate = await this.fetchRateFromAPI(fromCurrency, toCurrency);
 
       // Update or create cache entry
@@ -91,9 +77,6 @@ export class ExchangeRateService {
         },
       });
 
-      logger.info(
-        `[ExchangeRate] ✓ Cached new rate: 1 ${fromCurrency} = ${rate} ${toCurrency}`,
-      );
       return rate;
     } catch (error) {
       logger.error(

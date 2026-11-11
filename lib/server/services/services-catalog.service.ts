@@ -141,12 +141,8 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
   refreshInProgress = true;
   refreshPromise = (async () => {
     try {
-      logger.info("[CatalogBuild] Starting split catalog build...");
       const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
       const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
-      logger.info(
-        `[CatalogBuild] Rates: 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
-      );
 
       const providers: CatalogProvider[] = [
         {
@@ -165,16 +161,11 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
         },
       ];
 
-      logger.info("[CatalogBuild] Fetching provider services in parallel...");
       const [smsManResult, tvResult] = await Promise.allSettled([
         withTimeout(
           (async () => {
             const smsManService = new SMSManService();
-            const services = await smsManService.getAvailableServices();
-            logger.info(
-              `[SMSMan] ✓ Fetched ${services.length} service×country rows`,
-            );
-            return services;
+            return smsManService.getAvailableServices();
           })(),
           "SMS-Man service fetch",
           60_000,
@@ -184,14 +175,10 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
             const textVerifiedService = new TextVerifiedService();
             const basicServices =
               await textVerifiedService.getAvailableServices();
-            const services = basicServices.map((service) => ({
+            return basicServices.map((service) => ({
               ...service,
               price: TV_DEFAULT_BASE_PRICE_USD,
             }));
-            logger.info(
-              `[Panda] ✓ Fetched ${services.length} services (baseline pricing)`,
-            );
-            return services;
           })(),
           "TextVerified service fetch",
           25_000,
@@ -282,9 +269,6 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
         });
       });
 
-      logger.info(
-        `[CatalogBuild] Pricing ${servicesToPrice.length} rows (SMS-Man: ${smsManServices.length}, TV: ${tvServices.length})...`,
-      );
       const pricingResults = await PricingService.calculatePrices(
         servicesToPrice,
         usdToNgnRate,
@@ -400,11 +384,6 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
       }
 
       memoryCache = store;
-      logger.info(
-        `[CatalogBuild] ✓ Cache built: ${catalog.services.length} unique services, ` +
-          `${countriesIndex.size} provider×service country lists ` +
-          `(raw rows: SMS-Man ${smsManServices.length}, TV ${tvServices.length})`,
-      );
       return store;
     } finally {
       refreshInProgress = false;
@@ -421,7 +400,6 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
  */
 async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
   try {
-    logger.info("[Catalog] Building fast skeleton catalog...");
     const [usdToNgnRate, rubToUsdRate, smsAppsResult, tvResult] =
       await Promise.all([
         ExchangeRateService.getUsdToNgnRate(),
@@ -525,9 +503,6 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
 
     skeletonCatalog = catalog;
     skeletonCachedAt = Date.now();
-    logger.info(
-      `[Catalog] ✓ Skeleton ready: ${catalog.services.length} unique services (no prices yet)`,
-    );
     return catalog;
   } catch (e) {
     logger.error("[Catalog] Skeleton build failed:", e);
@@ -544,17 +519,11 @@ export async function getServicesCatalog(): Promise<CatalogPayload | null> {
   if (skeletonCatalog && skeletonCatalog.services.length > 0) {
     const ageMs = Date.now() - skeletonCachedAt;
     if (ageMs > SKELETON_TTL_MS) {
-      logger.info("[Catalog] Refreshing service list in the background");
       void buildSkeletonCatalog();
-    } else {
-      logger.info(
-        `[Catalog] ✓ Serving ${skeletonCatalog.services.length} services`,
-      );
     }
     return skeletonCatalog;
   }
 
-  logger.info("[Catalog] Cold start — building service list...");
   return buildSkeletonCatalog();
 }
 
@@ -577,7 +546,6 @@ async function loadCountriesForService(
   serviceCode: string,
   providerId: string,
 ): Promise<{ countries: CountryPriceItem[]; exchangeRate: ExchangeRateInfo }> {
-  const started = Date.now();
   const [usdToNgn, usdToRub] = await Promise.all([
     ExchangeRateService.getUsdToNgnRate(),
     ExchangeRateService.getUsdToRubRate(),
@@ -633,7 +601,6 @@ async function loadCountriesForService(
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (/not available/i.test(message)) {
-        logger.info(`[Catalog] Panda has no offer for ${serviceCode}: ${message}`);
         countries = [];
       } else {
         throw e;
@@ -645,9 +612,6 @@ async function loadCountriesForService(
 
   countries.sort(
     (a, b) => a.priceUsd - b.priceUsd || a.name.localeCompare(b.name),
-  );
-  logger.info(
-    `[Catalog] ${serviceCode}/${providerId} → ${countries.length} countries in ${Date.now() - started}ms`,
   );
   return { countries, exchangeRate };
 }

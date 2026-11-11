@@ -158,15 +158,11 @@ export default function NewOrderPage() {
       // Only fetch if still using the hardcoded fallback
       if (usdToNgn !== FALLBACK_USD_TO_NGN) return;
       try {
-        logger.info("[NewOrderPage] Fetching exchange rate from server API...");
         const res = await fetch("/api/exchange-rates");
         if (res.ok) {
           const data = await res.json();
           const rate = data?.data?.usdToNgn;
           if (rate && rate > 0) {
-            logger.info(
-              `[NewOrderPage] Exchange rate from API: 1 USD = ₦${rate}`,
-            );
             setUsdToNgn(rate);
           }
         }
@@ -184,8 +180,6 @@ export default function NewOrderPage() {
 
   const fetchData = async () => {
     try {
-      logger.info("[NewOrderPage] ========== FETCHING LIGHTWEIGHT CATALOG ==========");
-
       const fetchCatalogWithRetry = async () => {
         try {
           return await api.getAvailableServices();
@@ -251,15 +245,8 @@ export default function NewOrderPage() {
 
         const apiRate = servicesRes?.data?.exchangeRate?.usdToNgn;
         if (apiRate && typeof apiRate === "number" && apiRate > 0) {
-          logger.info(
-            `[NewOrderPage] Exchange rate from catalog: 1 USD = ₦${apiRate}`,
-          );
           setUsdToNgn(apiRate);
         }
-
-        logger.info(
-          `[NewOrderPage] Loaded lightweight catalog: ${services.length} unique services, ${providersFromApi.length} providers`,
-        );
 
         setAllServices(services);
         setProviders(
@@ -404,9 +391,6 @@ export default function NewOrderPage() {
         setError((current) =>
           current.startsWith("Failed to load countries") ? "" : current,
         );
-        logger.info(
-          `[NewOrderPage] Loading countries for ${selectedService} / ${selectedProvider}...`,
-        );
         const res = await api.getServiceCountries(
           selectedService,
           selectedProvider,
@@ -450,9 +434,6 @@ export default function NewOrderPage() {
           },
         );
 
-        logger.info(
-          `[NewOrderPage] Loaded ${countries.length} countries for ${selectedService}`,
-        );
         setServiceCountries(countries);
         if (countries.length === 1) {
           setSelectedCountry(countries[0].code);
@@ -481,13 +462,6 @@ export default function NewOrderPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    logger.info("[NewOrderPage] ========== SUBMIT ORDER ==========");
-    logger.info("[NewOrderPage] Selected:", {
-      service: selectedService,
-      country: selectedCountry,
-      provider: selectedProvider,
-    });
 
     if (!selectedService || !selectedCountry || !selectedProvider) {
       logger.error("[NewOrderPage] Validation failed: missing selection");
@@ -522,11 +496,6 @@ export default function NewOrderPage() {
     }
 
     if (balance < currentPriceNgn) {
-      logger.error("[NewOrderPage] Insufficient balance:", {
-        balance,
-        required: currentPriceNgn,
-        deficit: currentPriceNgn - balance,
-      });
       toast.payment.insufficientBalance();
       setError(
         `Insufficient balance. You need ₦${currentPriceNgn.toLocaleString()} but only have ₦${balance.toLocaleString()}. Please add ₦${(
@@ -541,13 +510,6 @@ export default function NewOrderPage() {
     try {
       const provider = providers.find((p) => p.id === selectedProvider);
       const price = currentPriceNgn;
-
-      logger.info("[NewOrderPage] Order price calculation:", {
-        countryPrice_USD: countryRow?.priceUsd,
-        exchangeRate_USD_NGN: usdToNgn,
-        finalPrice_NGN: price,
-        providerName: provider?.name,
-      });
 
       if (!price || price <= 0) {
         logger.error("[NewOrderPage] Price is 0 or invalid:", price);

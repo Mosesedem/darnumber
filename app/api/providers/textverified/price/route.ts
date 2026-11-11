@@ -36,9 +36,6 @@ export async function GET(req: NextRequest) {
     }
 
     const baseUsdPrice = quote.price;
-    logger.info(
-      `[panda][Price] Got price for ${quote.serviceName} with capability=${quote.capability}: $${baseUsdPrice}`,
-    );
 
     // 2. Get exchange rate
     const usdToNgn = await ExchangeRateService.getUsdToNgnRate();
@@ -57,25 +54,6 @@ export async function GET(req: NextRequest) {
 
     // 4. Convert to NGN
     const finalNgnPrice = Math.ceil(finalUsdPrice * usdToNgn);
-
-    const ruleNote = pricingResult.ruleApplied
-      ? `(Rule: ${pricingResult.ruleApplied.profitType} ${
-          pricingResult.ruleApplied.profitValue
-        }${
-          pricingResult.ruleApplied.profitType === "PERCENTAGE"
-            ? "%"
-            : ` ${pricingResult.ruleApplied.profitCurrency}`
-        })`
-      : "(Default 20% markup)";
-
-    logger.info(
-      `[panda][Price] ${serviceName}: Base $${baseUsdPrice.toFixed(
-        2,
-      )} + profit $${profitUsd.toFixed(2)} = $${finalUsdPrice.toFixed(
-        2,
-      )} → ₦${finalNgnPrice.toLocaleString()}`,
-      ruleNote,
-    );
 
     return json({
       ok: true,

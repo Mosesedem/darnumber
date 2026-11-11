@@ -20,10 +20,6 @@ export async function GET(req: NextRequest) {
       return error("Unauthorized: Admin access required", 403);
     }
 
-    logger.info(
-      `[ExchangeRates] Manual refresh triggered by ${session.user.email}`
-    );
-
     await ExchangeRateService.refreshCommonRates();
 
     return json({

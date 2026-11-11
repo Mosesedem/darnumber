@@ -93,41 +93,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  logger.info("=== POST /api/orders START ===");
   try {
-    logger.info("1. Authenticating user...");
     const session = await requireAuth();
-    logger.info("2. ✅ User authenticated:", {
-      userId: session.user.id,
-      email: session.user.email,
-    });
-
-    logger.info("3. Parsing request body...");
     const body = await req.json();
     const { serviceCode, country, provider, price } = body || {};
 
-    logger.info("4. Request data:", {
-      serviceCode,
-      country,
-      provider,
-      price,
-      priceType: typeof price,
-      body: JSON.stringify(body),
-    });
-
     if (!serviceCode || !country) {
-      logger.info("5. ❌ Validation failed - Missing required fields:", {
-        hasServiceCode: !!serviceCode,
-        hasCountry: !!country,
-      });
       return error("serviceCode and country are required", 400);
     }
 
-    logger.info("5. ✅ Validation passed, creating order...");
-    logger.info("   serviceCode:", serviceCode);
-    logger.info("   country:", country);
-    logger.info("   provider:", provider);
-    logger.info("   clientPrice (NGN):", price);
     const service = new OrderService();
     const result = await service.createOrder({
       userId: session.user.id,
@@ -137,8 +111,12 @@ export async function POST(req: NextRequest) {
       preferredProvider: provider,
     });
 
-    logger.info("6. ✅ Order created successfully:", result);
-    logger.info("=== POST /api/orders END (SUCCESS) ===");
+    logger.info("[Order] Created", {
+      orderId: result.orderId,
+      serviceCode,
+      country,
+      provider: provider || null,
+    });
 
     // Bust relevant user caches so lists/stats/balance update immediately
     try {
@@ -151,12 +129,7 @@ export async function POST(req: NextRequest) {
 
     return json({ ok: true, data: result });
   } catch (e) {
-    logger.error("=== POST /api/orders ERROR ===");
-    logger.error("Error details:", {
-      message: e instanceof Error ? e.message : "Unknown error",
-      stack: e instanceof Error ? e.stack : undefined,
-      error: e,
-    });
+    logger.error("[Order] Create failed", e);
 
     const msg = e instanceof Error ? e.message : "Unexpected error";
     const lowerMsg = msg.toLowerCase();
@@ -168,10 +141,8 @@ export async function POST(req: NextRequest) {
         ? 503
         : 400;
     if (msg === "Unauthorized") {
-      logger.info("Returning 401 Unauthorized");
       return error("Unauthorized", 401);
     }
-    logger.info(`Returning ${status} error:`, msg);
     return error(msg, status);
   }
 }

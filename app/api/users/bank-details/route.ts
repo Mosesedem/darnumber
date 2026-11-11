@@ -45,10 +45,6 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
-    logger.info("[Route][Users][BankDetails] Updated successfully", {
-      userId: session.user.id,
-    });
-
     return json({
       ok: true,
       data: user,

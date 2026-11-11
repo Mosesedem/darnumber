@@ -1,4 +1,3 @@
-import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import {
   getServicesCatalog,
@@ -20,26 +19,10 @@ export { buildAndCacheServices };
  * /api/public/services/countries — do not expand the full matrix here.
  */
 export async function GET() {
-  logger.info("\n╔════════════════════════════════════════════════╗");
-  logger.info("║   GET /api/orders/services - Lightweight catalog");
-  logger.info("╚════════════════════════════════════════════════╝");
   try {
-    try {
-      const authResult = await requireAuth();
-      logger.info(
-        `[Auth] ✓ User ${authResult?.user?.email} authenticated (optional)`,
-      );
-    } catch {
-      logger.info("[Auth] Serving public catalog (no auth)");
-    }
-
     const catalog = await getServicesCatalog();
 
     if (catalog) {
-      logger.info(
-        `[Catalog] ✓ Serving ${catalog.services.length} unique services`,
-      );
-      logger.info("╚════════════════════════════════════════════════╝\n");
       return json(
         { ok: true, data: catalog },
         {
@@ -51,20 +34,12 @@ export async function GET() {
       );
     }
 
-    logger.info("╚════════════════════════════════════════════════╝\n");
     return error(
       "No services available from providers. Please check API keys and try again.",
       503,
     );
   } catch (e) {
-    if (e instanceof Error && e.message === "Unauthorized") {
-      return error("Unauthorized", 401);
-    }
-    logger.error(
-      "[Error] ✗ Request failed:",
-      e instanceof Error ? e.message : e,
-    );
-    logger.info("╚════════════════════════════════════════════════╝\n");
+    logger.error("[Orders][Services] Request failed", e);
     return error(
       `Service aggregation failed: ${e instanceof Error ? e.message : "Unknown error"}`,
       500,

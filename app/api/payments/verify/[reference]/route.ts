@@ -18,16 +18,6 @@ export async function GET(
     if (!provider) return error("provider required", 400);
     if (!reference) return error("reference required", 400);
 
-    logger.info(
-      "[Route][Verify]",
-      "reference=",
-      reference,
-      "provider=",
-      provider,
-      "userId=",
-      session.user.id
-    );
-
     const svc = new PaymentService();
     const data = await svc.verifyPayment({
       userId: session.user.id,

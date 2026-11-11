@@ -80,12 +80,6 @@ export async function GET(req: NextRequest) {
       prisma.transaction.count({ where }),
     ]);
 
-    logger.info("[Route][Users][Transactions] Fetched successfully", {
-      userId,
-      page,
-      total,
-    });
-
     const result = {
       transactions: transactions.map((t) => ({
         ...t,

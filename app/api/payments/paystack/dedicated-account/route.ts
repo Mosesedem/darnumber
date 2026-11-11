@@ -10,7 +10,6 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const session = await requireAuth();
-    logger.info("[DVA][GET] userId=", session.user.id);
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { bankName: true, accountNumber: true, bankAccount: true },
@@ -42,12 +41,6 @@ export async function POST(req: NextRequest) {
     const session = await requireAuth();
     const body = await req.json().catch(() => ({}));
     const preferredBank = (body?.preferredBank as string | undefined)?.trim();
-    logger.info(
-      "[DVA][POST] userId=",
-      session.user.id,
-      "preferredBank=",
-      preferredBank
-    );
     // Optional guard: basic bank name sanity
     if (preferredBank && preferredBank.length < 3) {
       return error("Invalid preferred bank name", 400);
@@ -57,7 +50,6 @@ export async function POST(req: NextRequest) {
       session.user.id,
       preferredBank
     );
-    logger.info("[DVA][POST] assigned=", data);
     if ((data as any)?.status === "PENDING") {
       // Inform client that assignment is in progress
       return json({ ok: true, data }, { status: 202 });
