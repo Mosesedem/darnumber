@@ -16,7 +16,6 @@ import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service
 import { PricingService } from "@/lib/server/services/pricing.service";
 
 const SERVICES_CACHE_TTL_SECONDS = 90 * 60; // 90 min hard expiry
-const SERVICES_STALE_AFTER_SECONDS = 24 * 60; // background refresh after 24 min
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
 const TV_DEFAULT_BASE_PRICE_USD = 2.5;
 
@@ -47,7 +46,10 @@ export type CatalogServiceItem = {
 export type CountryPriceItem = {
   code: string;
   name: string;
+  /** Sell price in USD after markup, before naira conversion. */
   priceUsd: number;
+  /** Sell price in NGN. This is the amount an order will charge. */
+  priceNgn: number;
 };
 
 export type ExchangeRateInfo = {
@@ -72,10 +74,25 @@ type CatalogCacheStore = {
 };
 
 let memoryCache: CatalogCacheStore | null = null;
-/** Fast skeleton (names only) served while the full price index builds. */
+/** Fast skeleton (names only). Country prices are loaded per service. */
 let skeletonCatalog: CatalogPayload | null = null;
+let skeletonCachedAt = 0;
+const SKELETON_TTL_MS = 30 * 60 * 1000;
 let refreshInProgress = false;
 let refreshPromise: Promise<CatalogCacheStore | null> | null = null;
+
+const COUNTRY_LIST_TTL_MS = 10 * 60 * 1000;
+const EMPTY_COUNTRY_LIST_TTL_MS = 60 * 1000;
+type CountryListCache = {
+  countries: CountryPriceItem[];
+  exchangeRate: ExchangeRateInfo;
+  expiresAt: number;
+};
+const countryListCache = new Map<string, CountryListCache>();
+const countryListInflight = new Map<
+  string,
+  Promise<{ countries: CountryPriceItem[]; exchangeRate: ExchangeRateInfo }>
+>();
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -328,6 +345,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
               code: countryCode,
               name: meta.countryName || countryCode,
               priceUsd: priceUSD,
+              priceNgn: Math.ceil(priceUSD * usdToNgnRate),
             };
           }
           return;
@@ -342,6 +360,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
           code: countryCode,
           name: meta.countryName || countryCode,
           priceUsd: priceUSD,
+          priceNgn: Math.ceil(priceUSD * usdToNgnRate),
         });
       });
 
@@ -394,16 +413,6 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
   })();
 
   return refreshPromise;
-}
-
-function isCacheFresh(cache: CatalogCacheStore): boolean {
-  return Date.now() < cache.expiresAt;
-}
-
-function hasLionServices(cache: CatalogCacheStore): boolean {
-  return cache.catalog.services.some((s) =>
-    s.providers.some((p) => p.id === PROVIDERS.LION.id),
-  );
 }
 
 /**
@@ -515,6 +524,7 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
     };
 
     skeletonCatalog = catalog;
+    skeletonCachedAt = Date.now();
     logger.info(
       `[Catalog] ✓ Skeleton ready: ${catalog.services.length} unique services (no prices yet)`,
     );
@@ -526,66 +536,125 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
 }
 
 /**
- * Get the lightweight catalog. Uses stale-while-revalidate:
- * returns cached data immediately when available; refreshes in background
- * when past the soft-stale window.
- *
- * Cold path: returns a fast names-only skeleton and builds the full
- * countries/price index in the background so "Loading services..." is seconds, not minutes.
+ * Lightweight service list (names + which provider sells each one).
+ * Prices are not in this payload. The buy page loads them when a service
+ * is selected, via getCountriesForService().
  */
 export async function getServicesCatalog(): Promise<CatalogPayload | null> {
-  if (memoryCache && isCacheFresh(memoryCache) && hasLionServices(memoryCache)) {
-    const ageSeconds = (Date.now() - memoryCache.cachedAt) / 1000;
-    if (ageSeconds > SERVICES_STALE_AFTER_SECONDS && !refreshInProgress) {
-      logger.info(
-        `[Catalog] Serving stale catalog (${Math.round(ageSeconds / 60)}min) — background refresh`,
-      );
-      void buildAndCacheServices();
+  if (skeletonCatalog && skeletonCatalog.services.length > 0) {
+    const ageMs = Date.now() - skeletonCachedAt;
+    if (ageMs > SKELETON_TTL_MS) {
+      logger.info("[Catalog] Refreshing service list in the background");
+      void buildSkeletonCatalog();
     } else {
       logger.info(
-        `[Catalog] ✓ Memory hit (${Math.round(ageSeconds / 60)}min, ${memoryCache.catalog.services.length} services)`,
+        `[Catalog] ✓ Serving ${skeletonCatalog.services.length} services`,
       );
-    }
-    return memoryCache.catalog;
-  }
-
-  // Poisoned / partial cache without Lion — discard
-  if (memoryCache && !hasLionServices(memoryCache)) {
-    logger.warn("[Catalog] Discarding cache without Lion services");
-    memoryCache = null;
-  }
-
-  // Full cache miss: serve skeleton immediately, build prices in background.
-  // First request after deploy no longer blocks on the ~100k-row price matrix.
-  if (skeletonCatalog && skeletonCatalog.services.length > 0) {
-    logger.info(
-      `[Catalog] ✓ Serving skeleton (${skeletonCatalog.services.length} services) — full index building`,
-    );
-    if (!refreshInProgress) {
-      void buildAndCacheServices();
     }
     return skeletonCatalog;
   }
 
-  logger.info("[Catalog] Cold start — building skeleton then full index...");
-  const skeleton = await buildSkeletonCatalog();
+  logger.info("[Catalog] Cold start — building service list...");
+  return buildSkeletonCatalog();
+}
 
-  // Kick full build (prices + countries index) without blocking the catalog response
-  if (!refreshInProgress) {
-    void buildAndCacheServices();
+function isLionProvider(providerId: string): boolean {
+  const v = providerId.toLowerCase();
+  return v === PROVIDERS.LION.id || v === "sms-man" || v === "smsman";
+}
+
+function isPandaProvider(providerId: string): boolean {
+  const v = providerId.toLowerCase();
+  return v === PROVIDERS.PANDA.id || v === "textverified";
+}
+
+/**
+ * Live countries and sell prices for one service on one provider.
+ * Lion uses SMS-Man's per-application price call. Panda is United States
+ * only and is quoted with the capability that service actually supports.
+ */
+async function loadCountriesForService(
+  serviceCode: string,
+  providerId: string,
+): Promise<{ countries: CountryPriceItem[]; exchangeRate: ExchangeRateInfo }> {
+  const started = Date.now();
+  const [usdToNgn, usdToRub] = await Promise.all([
+    ExchangeRateService.getUsdToNgnRate(),
+    ExchangeRateService.getUsdToRubRate(),
+  ]);
+  if (!usdToNgn || usdToNgn <= 0 || !usdToRub || usdToRub <= 0) {
+    throw new Error("Exchange rate unavailable");
+  }
+  const exchangeRate: ExchangeRateInfo = {
+    usdToNgn,
+    usdToRub,
+    source: "server",
+    timestamp: new Date().toISOString(),
+  };
+
+  let countries: CountryPriceItem[] = [];
+
+  if (isLionProvider(providerId)) {
+    const offers = await new SMSManService().listServiceOffers(serviceCode);
+    if (offers.length > 0) {
+      const priced = await PricingService.calculatePrices(
+        offers.map((offer) => ({
+          basePrice: Number((offer.priceRub / usdToRub).toFixed(6)),
+          serviceCode,
+          country: offer.countryCode,
+        })),
+        usdToNgn,
+      );
+      countries = offers.map((offer, index) => ({
+        code: offer.countryCode,
+        name: offer.countryName,
+        priceUsd: Number(priced[index].finalPrice.toFixed(4)),
+        priceNgn: Math.ceil(priced[index].finalPrice * usdToNgn),
+      }));
+    }
+  } else if (isPandaProvider(providerId)) {
+    const tv = new TextVerifiedService();
+    try {
+      const quote = await tv.quoteVerification(serviceCode);
+      const pricing = await PricingService.calculatePrice(
+        quote.price,
+        quote.serviceName,
+        "US",
+        usdToNgn,
+      );
+      countries = [
+        {
+          code: "US",
+          name: "United States",
+          priceUsd: Number(pricing.finalPrice.toFixed(4)),
+          priceNgn: Math.ceil(pricing.finalPrice * usdToNgn),
+        },
+      ];
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (/not available/i.test(message)) {
+        logger.info(`[Catalog] Panda has no offer for ${serviceCode}: ${message}`);
+        countries = [];
+      } else {
+        throw e;
+      }
+    }
+  } else {
+    throw new Error(`Unknown provider "${providerId}"`);
   }
 
-  if (skeleton) return skeleton;
-
-  // Skeleton failed — fall back to synchronous full build
-  logger.info("[Catalog] Skeleton failed — falling back to full build...");
-  const built = await buildAndCacheServices();
-  return built?.catalog ?? null;
+  countries.sort(
+    (a, b) => a.priceUsd - b.priceUsd || a.name.localeCompare(b.name),
+  );
+  logger.info(
+    `[Catalog] ${serviceCode}/${providerId} → ${countries.length} countries in ${Date.now() - started}ms`,
+  );
+  return { countries, exchangeRate };
 }
 
 /**
  * Countries + prices for one service under one provider.
- * If the full price index is still building (skeleton-only phase), waits for it.
+ * Served from a short memory cache. A miss quotes that service only.
  */
 export async function getCountriesForService(
   serviceCode: string,
@@ -593,51 +662,34 @@ export async function getCountriesForService(
 ): Promise<{
   countries: CountryPriceItem[];
   exchangeRate: ExchangeRateInfo | null;
-} | null> {
-  // Ensure full countries index is available (may wait on first cold request)
-  if (!memoryCache || !isCacheFresh(memoryCache) || !hasLionServices(memoryCache)) {
-    logger.info(
-      `[Catalog] Countries for ${serviceCode} need full index — waiting for build...`,
-    );
-    const built = await buildAndCacheServices();
-    if (!built) return null;
-  }
-
-  if (!memoryCache) {
-    return null;
-  }
-
-  const ageSeconds = (Date.now() - memoryCache.cachedAt) / 1000;
-  if (ageSeconds > SERVICES_STALE_AFTER_SECONDS && !refreshInProgress) {
-    void buildAndCacheServices();
-  }
-
+}> {
   const key = countriesKey(providerId, serviceCode);
-  let resolved = memoryCache.countriesIndex.get(key) || [];
-
-  // Fallback: try alternate provider id aliases
-  if (resolved.length === 0) {
-    const aliases =
-      providerId === "lion" || providerId === "sms-man"
-        ? [PROVIDERS.LION.id, "sms-man"]
-        : providerId === "panda" || providerId === "textverified"
-          ? [PROVIDERS.PANDA.id, "textverified"]
-          : [providerId];
-    for (const alias of aliases) {
-      const alt = memoryCache.countriesIndex.get(
-        countriesKey(alias, serviceCode),
-      );
-      if (alt && alt.length > 0) {
-        resolved = alt;
-        break;
-      }
-    }
+  const cached = countryListCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { countries: cached.countries, exchangeRate: cached.exchangeRate };
   }
 
-  return {
-    countries: resolved,
-    exchangeRate: memoryCache.catalog.exchangeRate,
-  };
+  const inflight = countryListInflight.get(key);
+  if (inflight) return inflight;
+
+  const job = loadCountriesForService(serviceCode, providerId)
+    .then((result) => {
+      const ttl =
+        result.countries.length > 0
+          ? COUNTRY_LIST_TTL_MS
+          : EMPTY_COUNTRY_LIST_TTL_MS;
+      countryListCache.set(key, {
+        ...result,
+        expiresAt: Date.now() + ttl,
+      });
+      return result;
+    })
+    .finally(() => {
+      countryListInflight.delete(key);
+    });
+
+  countryListInflight.set(key, job);
+  return job;
 }
 
 /**

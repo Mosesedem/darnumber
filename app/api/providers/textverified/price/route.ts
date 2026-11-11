@@ -14,64 +14,31 @@ export const runtime = "nodejs";
  */
 export async function GET(req: NextRequest) {
   const serviceName = req.nextUrl.searchParams.get("serviceName");
-  const capabilityParam = req.nextUrl.searchParams.get("capability");
 
   if (!serviceName) {
     return error("serviceName is required", 400);
   }
 
-  // Use the capability from the query string (passed from service data), default to "sms"
-  const capability = (
-    ["sms", "voice", "smsAndVoiceCombo"].includes(capabilityParam || "")
-      ? capabilityParam
-      : "sms"
-  ) as "sms" | "voice" | "smsAndVoiceCombo";
-
   try {
     const textVerifiedService = new TextVerifiedService();
 
-    // 1. Get base USD price from TextVerified using the new pricing API
-    // Try with the given capability first, then retry with alternatives if it fails
-    let baseUsdPrice: number | null = null;
-    const capabilitiesToTry: Array<"sms" | "voice" | "smsAndVoiceCombo"> = [
-      capability,
-      ...(capability !== "sms" ? ["sms" as const] : []),
-      ...(capability !== "voice" ? ["voice" as const] : []),
-      ...(capability !== "smsAndVoiceCombo"
-        ? ["smsAndVoiceCombo" as const]
-        : []),
-    ];
-
-    for (const cap of capabilitiesToTry) {
-      try {
-        const result = await textVerifiedService.getServicePricing({
-          serviceName,
-          areaCode: false,
-          carrier: false,
-          numberType: "mobile",
-          capability: cap,
-        });
-        if (result.price > 0) {
-          baseUsdPrice = result.price;
-          logger.info(
-            `[panda][Price] Got price for ${serviceName} with capability=${cap}: $${result.price}`,
-          );
-          break;
-        }
-      } catch (e) {
-        logger.warn(
-          `[panda][Price] Pricing failed for ${serviceName} with capability=${cap}: ${(e as Error).message}`,
-        );
-        continue;
+    // Quote the capability the service actually sells. Trying sms, voice, and
+    // combo in sequence is what TextVerified rejects as incompatible.
+    let quote: Awaited<ReturnType<TextVerifiedService["quoteVerification"]>>;
+    try {
+      quote = await textVerifiedService.quoteVerification(serviceName);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (/not available/i.test(message)) {
+        return error(`Price not available for service: ${serviceName}`, 404);
       }
+      throw e;
     }
 
-    if (baseUsdPrice === null || baseUsdPrice <= 0) {
-      logger.warn(
-        `[panda][Price] No valid price found for ${serviceName} after trying all capabilities`,
-      );
-      return error(`Price not available for service: ${serviceName}`, 404);
-    }
+    const baseUsdPrice = quote.price;
+    logger.info(
+      `[panda][Price] Got price for ${quote.serviceName} with capability=${quote.capability}: $${baseUsdPrice}`,
+    );
 
     // 2. Get exchange rate
     const usdToNgn = await ExchangeRateService.getUsdToNgnRate();
@@ -80,7 +47,7 @@ export async function GET(req: NextRequest) {
     // final = providerBase + markup (FIXED may be USD or NGN)
     const pricingResult = await PricingService.calculatePrice(
       baseUsdPrice,
-      serviceName,
+      quote.serviceName,
       "US",
       usdToNgn,
     );
@@ -89,7 +56,7 @@ export async function GET(req: NextRequest) {
     const profitUsd = pricingResult.profit;
 
     // 4. Convert to NGN
-    const finalNgnPrice = Math.round(finalUsdPrice * usdToNgn);
+    const finalNgnPrice = Math.ceil(finalUsdPrice * usdToNgn);
 
     const ruleNote = pricingResult.ruleApplied
       ? `(Rule: ${pricingResult.ruleApplied.profitType} ${
@@ -113,7 +80,8 @@ export async function GET(req: NextRequest) {
     return json({
       ok: true,
       data: {
-        serviceName,
+        serviceName: quote.serviceName,
+        capability: quote.capability,
         price: finalNgnPrice, // Return NGN price
         baseUsd: baseUsdPrice,
         profitUsd: profitUsd,

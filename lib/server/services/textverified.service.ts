@@ -41,6 +41,40 @@ export interface TextVerifiedSms {
   smsContent?: string | null;
 }
 
+/** SMS-Activate style codes → TextVerified service names. */
+const SERVICE_ALIASES: Record<string, string> = {
+  wa: "whatsapp",
+  tg: "telegram",
+  ig: "instagram",
+  fb: "facebook",
+  go: "google",
+  vi: "viber",
+  ds: "discord",
+  tw: "twitter",
+  am: "amazon",
+  nf: "netflix",
+  tk: "tiktok",
+  lf: "tiktok",
+  wx: "apple",
+  ap: "apple",
+  mm: "microsoft",
+  ub: "uber",
+  mt: "steam",
+  vk: "vkontakte",
+  wb: "wechat",
+  ya: "yandex",
+};
+
+const CAPABILITY_ORDER: TextVerifiedCapability[] = [
+  "sms",
+  "smsAndVoiceCombo",
+  "voice",
+];
+
+function normalizeServiceKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 const CAPABILITY_ALIASES: Record<string, TextVerifiedCapability> = {
   sms: "sms",
   voice: "voice",
@@ -377,7 +411,13 @@ export class TextVerifiedService {
       if (!response.ok) {
         const errorText = await response.text();
         if (response.status === 400) {
-          redis.set(invalidCacheKey, "1", 2 * 60 * 60).catch(() => {});
+          const lower = errorText.toLowerCase();
+          // Capability mismatches are specific to this option set. Do not
+          // remember them as "unknown service", or a later correct capability
+          // is skipped for two hours.
+          if (!lower.includes("capability")) {
+            redis.set(invalidCacheKey, "1", 2 * 60 * 60).catch(() => {});
+          }
           throw new Error(`Incompatible service and options: ${errorText}`);
         }
         logger.error("[TextVerified] Pricing API error", {
@@ -480,6 +520,74 @@ export class TextVerifiedService {
     return (await res.json()) as Record<string, unknown>;
   }
 
+  /**
+   * Match a catalog code or display name to the provider service, and only
+   * the capabilities that service actually sells. Asking for `sms` on a
+   * voice-only service is what TextVerified rejects as incompatible.
+   */
+  async resolveService(query: string): Promise<{
+    serviceName: string;
+    capability: TextVerifiedCapability;
+    capabilities: TextVerifiedCapability[];
+  } | null> {
+    const services = await this.getAvailableServices("mobile", "verification");
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+
+    const alias = SERVICE_ALIASES[q];
+    const targets = new Set(
+      [normalizeServiceKey(q), alias ? normalizeServiceKey(alias) : ""].filter(
+        Boolean,
+      ),
+    );
+
+    let matches = services.filter((s) =>
+      targets.has(normalizeServiceKey(s.serviceName)),
+    );
+    if (matches.length === 0 && q.length >= 4) {
+      const normalizedQuery = normalizeServiceKey(q);
+      matches = services.filter(
+        (s) =>
+          normalizeServiceKey(s.serviceName) === normalizedQuery ||
+          normalizeServiceKey(s.description || "") === normalizedQuery,
+      );
+    }
+    if (matches.length === 0) return null;
+
+    const capabilities = CAPABILITY_ORDER.filter((cap) =>
+      matches.some((s) => s.capability === cap),
+    );
+    const capability = capabilities[0];
+    if (!capability) return null;
+    const serviceName =
+      matches.find((s) => s.capability === capability)?.serviceName ||
+      matches[0].serviceName;
+    return { serviceName, capability, capabilities };
+  }
+
+  async quoteVerification(query: string): Promise<{
+    serviceName: string;
+    capability: TextVerifiedCapability;
+    capabilities: TextVerifiedCapability[];
+    price: number;
+  }> {
+    const resolved = await this.resolveService(query);
+    if (!resolved) {
+      throw new Error(`Service "${query}" is not available`);
+    }
+    const pricing = await this.getServicePricing({
+      serviceName: resolved.serviceName,
+      areaCode: false,
+      carrier: false,
+      numberType: "mobile",
+      capability: resolved.capability,
+    });
+    if (!Number.isFinite(pricing.price) || pricing.price <= 0) {
+      throw new Error(`Service "${resolved.serviceName}" is not available`);
+    }
+    return { ...resolved, price: pricing.price };
+  }
+
   async requestNumber(
     serviceName: string,
     country: string,
@@ -488,42 +596,32 @@ export class TextVerifiedService {
     logger.info("[TextVerified] Requesting number", { serviceName, country });
 
     if (country !== "US") {
-      throw new Error("TextVerified only supports the US.");
+      throw new Error("Panda Verify only supports United States numbers.");
+    }
+
+    const resolved = await this.resolveService(serviceName);
+    if (!resolved) {
+      throw new Error(`Service ${serviceName} is not available from Panda Verify.`);
     }
 
     const bearerToken = await this.getBearerToken();
-    const services = await this.getAvailableServices("mobile", "verification");
-    const service = services.find(
-      (s) => s.serviceName.toLowerCase() === serviceName.toLowerCase(),
-    );
-
-    if (!service) {
-      throw new Error(`Service ${serviceName} not found or not available`);
-    }
-
-    const preferred: TextVerifiedCapability[] = [
-      "sms",
-      service.capability,
-      "smsAndVoiceCombo",
-    ];
-    const capabilitiesToTry = preferred.filter(
-      (v, i, arr) => arr.indexOf(v) === i,
-    );
-
     let lastError: Error = new Error(
-      `Service ${serviceName} is out of stock for all capability types.`,
+      `No numbers available for ${resolved.serviceName}`,
     );
 
-    for (const capability of capabilitiesToTry) {
+    for (const capability of resolved.capabilities) {
       logger.info("[TextVerified] Creating verification", {
-        serviceName,
+        serviceName: resolved.serviceName,
         capability,
       });
 
       const res = await fetchWithRetry(`${this.apiUrl}/verifications`, {
         method: "POST",
         headers: this.authHeaders(bearerToken),
-        body: JSON.stringify({ serviceName: service.serviceName, capability }),
+        body: JSON.stringify({
+          serviceName: resolved.serviceName,
+          capability,
+        }),
       });
 
       if (!res.ok) {
@@ -531,12 +629,15 @@ export class TextVerifiedService {
         const err = new Error(
           `Failed to request number: ${res.status} - ${errorText}`,
         );
-        if (res.status === 400) {
+        if (res.status === 400 || res.status === 409 || res.status === 422) {
           logger.warn("[TextVerified] Capability unavailable", {
-            serviceName,
+            serviceName: resolved.serviceName,
             capability,
+            status: res.status,
           });
-          lastError = err;
+          lastError = /stock|unavailable|no number/i.test(errorText)
+            ? new Error(`No numbers available for ${resolved.serviceName}`)
+            : err;
           continue;
         }
         throw err;

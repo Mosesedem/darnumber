@@ -83,8 +83,6 @@ export default function NewOrderPage() {
     Map<string, string>
   >(new Map());
   const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
-  const [tvExactPriceUsd, setTvExactPriceUsd] = useState<number | null>(null);
-  const [tvPriceLoading, setTvPriceLoading] = useState(false);
   /** Countries for the currently selected service+provider (loaded on demand). */
   const [serviceCountries, setServiceCountries] = useState<CountryOption[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
@@ -382,7 +380,6 @@ export default function NewOrderPage() {
     setSelectedService("");
     setSelectedCountry("");
     setServiceCountries([]);
-    setTvExactPriceUsd(null);
   }, [selectedProvider]);
 
   // Reset country when service changes
@@ -404,6 +401,9 @@ export default function NewOrderPage() {
       try {
         setCountriesLoading(true);
         setServiceCountries([]);
+        setError((current) =>
+          current.startsWith("Failed to load countries") ? "" : current,
+        );
         logger.info(
           `[NewOrderPage] Loading countries for ${selectedService} / ${selectedProvider}...`,
         );
@@ -427,16 +427,25 @@ export default function NewOrderPage() {
         }
 
         const countries: CountryOption[] = (res?.data?.countries || []).map(
-          (c: { code: string; name: string; priceUsd: number }) => {
+          (c: {
+            code: string;
+            name: string;
+            priceUsd: number;
+            priceNgn?: number;
+          }) => {
             const code = String(c.code || "").toUpperCase();
             const name =
               countryNameByCode.get(code) || c.name || code;
             const priceUsd = Number(c.priceUsd) || 0;
+            const priceNgn =
+              Number(c.priceNgn) > 0
+                ? Math.ceil(Number(c.priceNgn))
+                : Math.ceil(priceUsd * rate);
             return {
               code,
               name,
               priceUsd,
-              priceNgn: Math.ceil(priceUsd * rate),
+              priceNgn,
             };
           },
         );
@@ -445,6 +454,9 @@ export default function NewOrderPage() {
           `[NewOrderPage] Loaded ${countries.length} countries for ${selectedService}`,
         );
         setServiceCountries(countries);
+        if (countries.length === 1) {
+          setSelectedCountry(countries[0].code);
+        }
       } catch (e) {
         if (!cancelled) {
           logger.warn("[NewOrderPage] Failed to load countries:", e);
@@ -465,47 +477,6 @@ export default function NewOrderPage() {
     // countryNameByCode is enrichment only; re-run when names arrive is optional
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedService, selectedProvider]);
-
-  // Fetch exact TextVerified price only for the currently selected service.
-  useEffect(() => {
-    let cancelled = false;
-    const isTextVerified = selectedProvider === "panda";
-
-    if (!isTextVerified || !selectedService) {
-      setTvExactPriceUsd(null);
-      setTvPriceLoading(false);
-      return;
-    }
-
-    const fetchTextVerifiedPrice = async () => {
-      try {
-        setTvPriceLoading(true);
-        setTvExactPriceUsd(null);
-        const res = await api.getTextVerifiedPrice(selectedService);
-        if (cancelled) return;
-
-        const exactUsd = res?.data?.finalUsd;
-        if (typeof exactUsd === "number" && exactUsd > 0) {
-          setTvExactPriceUsd(exactUsd);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          logger.warn(
-            `[NewOrderPage] Failed to fetch exact price for ${selectedService}:`,
-            e,
-          );
-        }
-      } finally {
-        if (!cancelled) setTvPriceLoading(false);
-      }
-    };
-
-    void fetchTextVerifiedPrice();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProvider, selectedService]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -573,7 +544,6 @@ export default function NewOrderPage() {
 
       logger.info("[NewOrderPage] Order price calculation:", {
         countryPrice_USD: countryRow?.priceUsd,
-        tvExactPriceUsd,
         exchangeRate_USD_NGN: usdToNgn,
         finalPrice_NGN: price,
         providerName: provider?.name,
@@ -637,16 +607,7 @@ export default function NewOrderPage() {
     (c) => c.code === selectedCountry,
   );
 
-  const aggregatedPriceUsd = currentCountry?.priceUsd ?? 0;
-  const currentPriceUsd =
-    selectedProvider === "panda" && tvExactPriceUsd !== null
-      ? tvExactPriceUsd
-      : aggregatedPriceUsd;
-  const currentPriceNgn = Math.ceil(
-    currentPriceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
-  );
-  const waitingForTvPrice =
-    selectedProvider === "panda" && !!selectedService && tvPriceLoading;
+  const currentPriceNgn = currentCountry?.priceNgn ?? 0;
 
   const insufficientBalance =
     !!selectedService &&
@@ -709,11 +670,7 @@ export default function NewOrderPage() {
             </span>
           </div>
           <span className="font-bold text-primary">
-            {waitingForTvPrice && selectedProvider === "panda" ? (
-              <Spinner className="h-4 w-4 animate-spin" />
-            ) : (
-              `₦${(country.priceNgn || 0).toLocaleString()}`
-            )}
+            {`₦${(country.priceNgn || 0).toLocaleString()}`}
           </span>
         </button>
       </div>
@@ -1236,7 +1193,7 @@ export default function NewOrderPage() {
                 className="w-full h-12 text-base lg:hidden"
                 disabled={
                   creating ||
-                  waitingForTvPrice ||
+                  countriesLoading ||
                   insufficientBalance ||
                   !selectedService ||
                   !selectedCountry ||
@@ -1248,13 +1205,10 @@ export default function NewOrderPage() {
                     <Spinner className="mr-2 h-4 w-4" />
                     Processing...
                   </>
-                ) : waitingForTvPrice ? (
-                  <>
-                    <Spinner className="mr-2 h-4 w-4" />
-                    Fetching price...
-                  </>
                 ) : insufficientBalance ? (
                   "Insufficient Balance"
+                ) : currentPriceNgn > 0 ? (
+                  `Buy Number · ₦${currentPriceNgn.toLocaleString()}`
                 ) : (
                   "Buy Number"
                 )}
@@ -1348,10 +1302,10 @@ export default function NewOrderPage() {
                           insufficientBalance ? "text-red-600" : "text-primary"
                         }`}
                       >
-                        {waitingForTvPrice ? (
+                        {countriesLoading ? (
                           <span className="inline-flex items-center gap-2 text-base font-medium">
                             <Spinner className="h-4 w-4" />
-                            Fetching price...
+                            Loading price...
                           </span>
                         ) : (
                           <>₦{currentPriceNgn.toLocaleString()}</>
@@ -1379,7 +1333,7 @@ export default function NewOrderPage() {
                   className="w-full h-12 text-base mt-5 shadow-lg"
                   disabled={
                     creating ||
-                    waitingForTvPrice ||
+                    countriesLoading ||
                     insufficientBalance ||
                     !selectedService ||
                     !selectedCountry ||
@@ -1391,13 +1345,10 @@ export default function NewOrderPage() {
                       <Spinner className="mr-2 h-4 w-4" />
                       Processing...
                     </>
-                  ) : waitingForTvPrice ? (
-                    <>
-                      <Spinner className="mr-2 h-4 w-4" />
-                      Fetching price...
-                    </>
                   ) : insufficientBalance ? (
                     "Insufficient Balance"
+                  ) : currentPriceNgn > 0 ? (
+                    `Buy Number · ₦${currentPriceNgn.toLocaleString()}`
                   ) : (
                     "Buy Number Now"
                   )}

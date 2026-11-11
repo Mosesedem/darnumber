@@ -28,13 +28,6 @@ export async function GET(req: NextRequest) {
 
     const result = await getCountriesForService(serviceCode, providerId);
 
-    if (!result) {
-      return error(
-        "Services catalog unavailable. Please try again in a moment.",
-        503,
-      );
-    }
-
     return json(
       {
         ok: true,
@@ -47,15 +40,17 @@ export async function GET(req: NextRequest) {
       },
       {
         headers: {
-          // Per-service lists are stable for a while; edge-cache aggressively
-          "Cache-Control":
-            "public, s-maxage=1800, stale-while-revalidate=86400",
+          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
         },
       },
     );
   } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to load countries";
     logger.error("[public/services/countries] error", e);
-    return error("Failed to load countries for service", 500);
+    if (message.startsWith("Unknown provider")) {
+      return error(message, 400);
+    }
+    return error("Failed to load countries for this service. Please try again.", 503);
   }
 }
 

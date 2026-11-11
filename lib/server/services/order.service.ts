@@ -320,7 +320,9 @@ export class OrderService {
       normalized.includes("unavailable") ||
       normalized.includes("out of stock") ||
       normalized.includes("sold out") ||
-      normalized.includes("no stock")
+      normalized.includes("no stock") ||
+      normalized.includes("no number") ||
+      normalized.includes("no_number")
     );
   }
 
@@ -407,8 +409,11 @@ export class OrderService {
 
     let baseUsd: number;
 
+    let pricingCode = serviceCode;
+    let pricingCountry = country;
+
     if (normalizedProvider.includes("sms-man") || normalizedProvider.includes("lion")) {
-      // Fetch live price for this specific service+country — much faster than full catalogue
+      // One country + one service. Do not download the full price matrix.
       const smsMan = new SMSManService();
       const priceRub = await smsMan.getPriceForService(serviceCode, country);
       baseUsd = Number((priceRub / rubToUsdRate).toFixed(6));
@@ -416,51 +421,24 @@ export class OrderService {
         `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
       );
     } else {
-      // TextVerified — fetch the live per-service price; never use a hardcoded baseline
-      // to avoid undercharging customers.
+      // TextVerified prices the service's real capability. Short codes such as
+      // "wa" resolve to the provider's service name before the quote.
       const tv = new TextVerifiedService();
-      const capabilitiesToTry: Array<"sms" | "voice" | "smsAndVoiceCombo"> = [
-        "sms",
-        "voice",
-        "smsAndVoiceCombo",
-      ];
-      let tvPrice: number | null = null;
-      for (const cap of capabilitiesToTry) {
-        try {
-          const result = await tv.getServicePricing({
-            serviceName: serviceCode,
-            areaCode: false,
-            carrier: false,
-            numberType: "mobile",
-            capability: cap,
-          });
-          if (result.price > 0) {
-            tvPrice = result.price;
-            logger.info(
-              `[panda][Price] Got price for ${serviceCode} with capability=${cap}: $${tvPrice}`,
-            );
-            break;
-          }
-        } catch (e) {
-          logger.warn(
-            `[panda][Price] Pricing failed for ${serviceCode} with capability=${cap}: ${(e as Error).message}`,
-          );
-        }
-      }
-      if (tvPrice === null) {
-        throw new Error(
-          `Unable to fetch live price for service "${serviceCode}" from Panda Verify. Order cannot be processed.`,
-        );
-      }
-      baseUsd = tvPrice;
+      const quote = await tv.quoteVerification(serviceCode);
+      baseUsd = quote.price;
+      pricingCode = quote.serviceName;
+      pricingCountry = "US";
+      logger.info(
+        `[panda][Price] ${serviceCode} → ${quote.serviceName} capability=${quote.capability}: $${baseUsd}`,
+      );
     }
 
     // Apply admin pricing rules: final = providerBase + markup
     // FIXED markups may be USD or NGN (converted inside PricingService)
     const pricing = await PricingService.calculatePrice(
       baseUsd,
-      serviceCode,
-      country,
+      pricingCode,
+      pricingCountry,
       usdToNgnRate,
     );
     const finalUsd = pricing.finalPrice;
@@ -1108,7 +1086,68 @@ export class OrderService {
   }
 }
 
-// SMS-Man API v2.0 Integration - Simplified and Optimized
+type SmsManPriceRow = {
+  applicationId: string;
+  countryId: string;
+  countryCode: string;
+  cost: number;
+  count: number;
+};
+
+/**
+ * SMS-Man `get-prices` is nested `{ countryId: { applicationId: row } }` when
+ * the call is unfiltered or filtered by application, and flat
+ * `{ applicationId: row }` when both country and application are set.
+ * Application ids in `/applications` are numbers; price keys are strings.
+ */
+function parseSmsManPriceRows(payload: unknown): SmsManPriceRow[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+  const root = payload as Record<string, unknown>;
+  if (root.success === false) {
+    const msg = root.error_msg || root.error_code || "SMS-Man prices request failed";
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+
+  const rows: SmsManPriceRow[] = [];
+  const push = (fallbackAppId: string, raw: Record<string, unknown>) => {
+    if (!("cost" in raw)) return;
+    const cost = parseFloat(String(raw.cost));
+    const count = Number(raw.count ?? 0);
+    if (!Number.isFinite(cost) || !Number.isFinite(count)) return;
+    rows.push({
+      applicationId: String(raw.application_id ?? fallbackAppId),
+      countryId: String(raw.country_id ?? ""),
+      countryCode: String(raw.country ?? "").toUpperCase(),
+      cost,
+      count,
+    });
+  };
+
+  for (const [key, value] of Object.entries(root)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const obj = value as Record<string, unknown>;
+    if ("cost" in obj) {
+      push(key, obj);
+      continue;
+    }
+    for (const [innerKey, inner] of Object.entries(obj)) {
+      if (!inner || typeof inner !== "object" || Array.isArray(inner)) continue;
+      push(innerKey, inner as Record<string, unknown>);
+    }
+  }
+  return rows;
+}
+
+export type SmsManOffer = {
+  countryCode: string;
+  countryName: string;
+  priceRub: number;
+  count: number;
+};
+
+// SMS-Man API v2.0 Integration
 export class SMSManService {
   private apiUrl = "https://api.sms-man.com/control";
   private apiKey = process.env.SMSMAN_API_KEY || "";
@@ -1146,57 +1185,50 @@ export class SMSManService {
         `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`,
       );
 
-      // Create lookup maps for fast processing
-      const countriesMap = new Map();
-      const applicationsMap = new Map();
+      // Keys must be strings. `/applications` returns numeric ids, while
+      // `get-prices` object keys are strings, and Map lookup is strict.
+      const countriesMap = new Map<
+        string,
+        { title: string; code: string }
+      >();
+      const applicationsMap = new Map<
+        string,
+        { name: string; code: string }
+      >();
 
       countries.forEach((c: any) => {
-        countriesMap.set(c.id.toString(), {
+        if (c?.id === undefined || c?.id === null) return;
+        countriesMap.set(String(c.id), {
           title: c.title,
           code: c.code,
         });
       });
 
       applications.forEach((a: any) => {
-        applicationsMap.set(a.id, {
+        if (a?.id === undefined || a?.id === null) return;
+        applicationsMap.set(String(a.id), {
           name: a.title || a.name,
           code: a.code,
         });
       });
 
-      // Process pricing data efficiently
       const services: any[] = [];
-
-      Object.entries(pricesData).forEach(
-        ([countryId, countryServices]: any) => {
-          const country = countriesMap.get(countryId);
-          if (!country || typeof countryServices !== "object") return;
-
-          Object.entries(countryServices).forEach(
-            ([applicationId, serviceData]: any) => {
-              if (!serviceData?.count || serviceData.count <= 0) return;
-
-              const application = applicationsMap.get(applicationId);
-              if (!application) return;
-
-              // SMS-Man prices are in Russian Rubles (RUB)
-              // Return raw RUB price - conversion RUB→USD→NGN happens in frontend
-              const priceRUB = parseFloat(serviceData.cost);
-
-              services.push({
-                code: application.code || `app_${applicationId}`,
-                name: application.name,
-                country: country.code,
-                countryName: country.title,
-                price: priceRUB, // Raw RUB price
-                count: serviceData.count,
-                providerId: "sms-man",
-                currency: "RUB",
-              });
-            },
-          );
-        },
-      );
+      for (const row of parseSmsManPriceRows(pricesData)) {
+        if (row.count <= 0 || row.cost <= 0) continue;
+        const country = countriesMap.get(row.countryId);
+        const application = applicationsMap.get(row.applicationId);
+        if (!country || !application) continue;
+        services.push({
+          code: application.code || `app_${row.applicationId}`,
+          name: application.name,
+          country: row.countryCode || country.code,
+          countryName: country.title,
+          price: row.cost,
+          count: row.count,
+          providerId: "sms-man",
+          currency: "RUB",
+        });
+      }
 
       logger.info(
         `[SMSManService] Successfully processed ${services.length} services`,
@@ -1213,52 +1245,81 @@ export class SMSManService {
   }
 
   /**
-   * Fetches the live RUB price for a single service+country combination.
-   * Much faster than getAvailableServices() — resolves IDs then does one prices call.
+   * Live RUB price for one service in one country.
+   * `country_id` + `application_id` returns a single row, not the full matrix.
    */
   async getPriceForService(serviceCode: string, countryCode: string): Promise<number> {
     if (!this.apiKey) throw new Error("SMS-Man API key not configured");
 
-    // Resolve IDs (both are cached for 24h)
-    const [applications, countries] = await Promise.all([
-      this.getApplications(),
-      this.getCountries(),
-    ]);
-
-    const app = applications.find(
-      (a) => a.code?.toLowerCase() === serviceCode.toLowerCase(),
-    );
+    const app = await this.findApplication(serviceCode);
     if (!app) {
       throw new Error(`SMS-Man: service code "${serviceCode}" not found`);
     }
 
-    const countryId = countries.get(countryCode.toUpperCase());
-    if (!countryId) {
-      throw new Error(`SMS-Man: country "${countryCode}" not supported`);
-    }
-
-    const res = await fetch(
-      `${this.apiUrl}/get-prices?token=${this.apiKey}`,
-    );
+    const countryId = await this.getCountryIdFromCode(countryCode);
+    const params = new URLSearchParams({
+      token: this.apiKey,
+      country_id: countryId,
+      application_id: app.id,
+    });
+    const res = await fetch(`${this.apiUrl}/get-prices?${params}`);
     if (!res.ok) throw new Error(`SMS-Man prices API returned ${res.status}`);
-    const data = await res.json();
+    const rows = parseSmsManPriceRows(await res.json());
+    const row =
+      rows.find((r) => r.applicationId === app.id) ||
+      rows.find((r) => r.cost > 0);
 
-    const countryData = data[countryId];
-    if (!countryData) {
-      throw new Error(`SMS-Man: no prices for country "${countryCode}" (id: ${countryId})`);
-    }
-
-    // Find the entry for this application
-    const entry = Object.values(countryData as Record<string, any>).find(
-      (e: any) => String(e.application_id) === String(app.id),
-    );
-    if (!entry || !entry.cost) {
+    if (!row || row.cost <= 0) {
       throw new Error(
-        `SMS-Man: service "${serviceCode}" not available in "${countryCode}"`,
+        `SMS-Man: service "${serviceCode}" is not available in "${countryCode}"`,
       );
     }
+    if (row.count <= 0) {
+      throw new Error(
+        `No numbers available for ${serviceCode} in ${countryCode}`,
+      );
+    }
+    return row.cost;
+  }
 
-    return parseFloat(entry.cost);
+  /**
+   * In-stock countries for one service. Filtered `get-prices?application_id=`
+   * is tens of KB; the unfiltered matrix is tens of MB and is not used here.
+   */
+  async listServiceOffers(serviceCode: string): Promise<SmsManOffer[]> {
+    if (!this.apiKey) throw new Error("SMS-Man API key not configured");
+
+    const app = await this.findApplication(serviceCode);
+    if (!app) return [];
+
+    const [pricesRes, directory] = await Promise.all([
+      fetch(
+        `${this.apiUrl}/get-prices?token=${this.apiKey}&application_id=${app.id}`,
+      ),
+      this.getCountryDirectory(),
+    ]);
+    if (!pricesRes.ok) {
+      throw new Error(`SMS-Man prices API returned ${pricesRes.status}`);
+    }
+
+    const offers: SmsManOffer[] = [];
+    const seen = new Set<string>();
+    for (const row of parseSmsManPriceRows(await pricesRes.json())) {
+      if (row.applicationId !== app.id || row.count <= 0 || row.cost <= 0) {
+        continue;
+      }
+      const meta = directory.byId.get(row.countryId);
+      const countryCode = (row.countryCode || meta?.code || "").toUpperCase();
+      if (!countryCode || seen.has(countryCode)) continue;
+      seen.add(countryCode);
+      offers.push({
+        countryCode,
+        countryName: meta?.title || countryCode,
+        priceRub: row.cost,
+        count: row.count,
+      });
+    }
+    return offers;
   }
 
   async cancelNumber(externalId: string): Promise<void> {
@@ -1317,15 +1378,11 @@ export class SMSManService {
       "[SMSManService.requestNumber] Looking up application ID for service code:",
       serviceCode,
     );
-    const applications = await this.getApplications();
-    const app = applications.find((a) => a.code === serviceCode);
+    const app = await this.findApplication(serviceCode);
     if (!app) {
       logger.error(
         "[SMSManService.requestNumber] Service code not found in applications:",
-        {
-          serviceCode,
-          availableCodes: applications.slice(0, 20).map((a) => a.code),
-        },
+        { serviceCode },
       );
       throw new Error(`SMS-Man does not support service code: ${serviceCode}`);
     }
@@ -1342,22 +1399,38 @@ export class SMSManService {
     const countryId = await this.getCountryIdFromCode(country);
     logger.info("[SMSManService.requestNumber] Country ID:", countryId);
 
-    const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}`;
+    const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}&currency=RUB`;
     logger.info(
       "[SMSManService.requestNumber] GET",
       url.replace(this.apiKey, "***"),
     );
 
     const res = await fetch(url);
-    const data = await res.json();
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`SMS-Man get-number failed (${res.status})`);
+    }
     logger.info(
       "[SMSManService.requestNumber] Response:",
       JSON.stringify(data),
     );
 
-    if (data.success === false || data.error_code) {
+    if (!res.ok || data.success === false || data.error_code) {
       logger.error("[SMSManService.requestNumber] Provider error:", data);
-      throw new Error(data.error_msg || data.error || "Failed to get number");
+      const code = String(data.error_code || "");
+      const rawMsg = data.error_msg || data.error || "Failed to get number";
+      const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
+      if (/no_?numbers?/i.test(code) || /no numbers/i.test(msg)) {
+        throw new Error(
+          `No numbers available for ${serviceCode} in ${country}`,
+        );
+      }
+      throw new Error(msg);
+    }
+    if (!data.request_id || !data.number) {
+      throw new Error("SMS-Man did not return a phone number");
     }
 
     logger.info("[SMSManService.requestNumber] ========== SUCCESS ==========");
@@ -1413,54 +1486,69 @@ export class SMSManService {
     return applications;
   }
 
+  private async findApplication(
+    serviceCode: string,
+  ): Promise<{ id: string; code: string; name: string } | null> {
+    const q = serviceCode.trim().toLowerCase();
+    if (!q) return null;
+    const apps = await this.listApplications();
+    return apps.find((a) => a.code.toLowerCase() === q) ?? null;
+  }
+
   private async getApplications(): Promise<{ id: string; code: string }[]> {
-    // Reuse the richer list (same Redis key family); map down to id+code.
     const full = await this.listApplications();
     return full.map((a) => ({ id: a.id, code: a.code }));
   }
 
   /**
-   * Fetches and caches countries from SMS-Man API
-   * Returns a map of ISO country code -> SMS-Man country ID
+   * ISO code → SMS-Man country id, plus id → display name.
+   * One cached directory feeds quotes, purchases, and the country picker.
    */
-  private async getCountries(): Promise<Map<string, string>> {
-    const cacheKey = "smsman:countries";
+  private async getCountryDirectory(): Promise<{
+    byCode: Map<string, string>;
+    byId: Map<string, { id: string; code: string; title: string }>;
+  }> {
+    const cacheKey = "smsman:country-directory";
+    let rows: Array<{ id: string; code: string; title: string }> | null = null;
 
-    // Cache read is best-effort — fall through to live API on failure
     try {
       const cached = await redis.get(cacheKey);
-      if (cached) {
-        return new Map(Object.entries(JSON.parse(cached)));
-      }
+      if (cached) rows = JSON.parse(cached);
     } catch {
       // Redis unavailable — continue to live API
     }
 
-    logger.info("[SMSManService] Fetching countries from API...");
-    const res = await fetch(`${this.apiUrl}/countries?token=${this.apiKey}`);
-
-    if (!res.ok) {
-      throw new Error(`Failed to fetch countries: ${res.status}`);
+    if (!rows) {
+      if (!this.apiKey) throw new Error("SMS-Man API key not configured");
+      logger.info("[SMSManService] Fetching countries from API...");
+      const res = await fetch(`${this.apiUrl}/countries?token=${this.apiKey}`);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch countries: ${res.status}`);
+      }
+      const data = await res.json();
+      rows = Object.entries(data)
+        .map(([key, country]: [string, any]) => ({
+          id: String(country?.id ?? key),
+          code: String(country?.code || "").toUpperCase(),
+          title: String(country?.title || country?.name || country?.code || key),
+        }))
+        .filter((c) => c.code);
+      redis.set(cacheKey, JSON.stringify(rows), 60 * 60 * 24).catch(() => {});
+      logger.info(`[SMSManService] Cached ${rows.length} countries from API`);
     }
 
-    const data = await res.json();
+    const byCode = new Map<string, string>();
+    const byId = new Map<string, { id: string; code: string; title: string }>();
+    for (const row of rows) {
+      byCode.set(row.code, row.id);
+      byId.set(row.id, row);
+    }
+    return { byCode, byId };
+  }
 
-    const countryMap = new Map<string, string>();
-    Object.entries(data).forEach(([id, country]: [string, any]) => {
-      if (country.code) {
-        const isoCode = country.code.toUpperCase();
-        countryMap.set(isoCode, id);
-      }
-    });
-
-    logger.info(`[SMSManService] Cached ${countryMap.size} countries from API`);
-
-    // Cache write is fire-and-forget
-    redis
-      .set(cacheKey, JSON.stringify(Object.fromEntries(countryMap)), 60 * 60 * 24)
-      .catch(() => {});
-
-    return countryMap;
+  private async getCountries(): Promise<Map<string, string>> {
+    const { byCode } = await this.getCountryDirectory();
+    return byCode;
   }
 
   /**

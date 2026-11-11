@@ -99,23 +99,23 @@ export async function register() {
     // Kick off an initial sweep shortly after boot
     setTimeout(() => void sweepOverdueOrders(), 5000);
 
-    // Warm lightweight catalog + full price index on startup so the first
-    // Buy Number page load hits a warm skeleton (seconds) and countries
-    // endpoint already has the indexed price matrix.
+    // Warm the service-name list. Country prices are quoted per service
+    // when a buyer opens the country picker, so boot does not download
+    // the full SMS-Man price matrix.
     setTimeout(() => {
       void (async () => {
         try {
-          const { getServicesCatalog, buildAndCacheServices } =
-            await import("@/lib/server/services/services-catalog.service");
+          const { getServicesCatalog } = await import(
+            "@/lib/server/services/services-catalog.service"
+          );
           logger.info("[Startup] Warming services catalog...");
-          await getServicesCatalog(); // skeleton first
-          await buildAndCacheServices(); // full countries/price index
+          await getServicesCatalog();
           logger.info("[Startup] Services catalog cache warmed");
         } catch (e) {
           logger.warn("[Startup] Catalog warm failed", e);
         }
       })();
-    }, 3000); // 3s after boot — after initial auth setup completes
+    }, 3000);
 
     logger.info("[OrderExpirer] Registered background sweeper", {
       intervalMs,
